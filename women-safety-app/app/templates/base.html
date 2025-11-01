@@ -142,7 +142,7 @@
         .navbar{
             backdrop-filter: blur(10px);
             background: rgba(255,255,255,0.98) !important;
-            border-bottom: 1px solid rgba(0,0,0,0.06);
+            border-bottom: none; /* removed thin underline bar */
         }
         
         /* Auth top-right area - refined positioning */
@@ -325,6 +325,7 @@
                     <span class="navbar-toggler-icon"></span>
                 </button>
             </div>
+
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto align-items-center">
                     <li class="nav-item">
@@ -369,7 +370,6 @@
                             Fake Call
                         </a>
                     </li>
-
                     <li class="nav-item">
                         <a class="nav-link px-3 py-2" href="{{ url_for('main.emergency_contacts') }}">
                             <svg width="16" height="16" fill="currentColor" class="me-1" viewBox="0 0 16 16">
@@ -380,8 +380,6 @@
                             Emergency Contacts
                         </a>
                     </li>
-                    
-                    
                 </ul>
             </div>
         </div>

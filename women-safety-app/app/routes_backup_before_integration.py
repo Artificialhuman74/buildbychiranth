@@ -4,8 +4,7 @@ import os
 import json
 import requests
 from datetime import datetime
-from app.models import db, IncidentReport, CommunityPost, Comment, EmergencyContact, SOSAlert, UserPreference, RouteFeedback
-from sqlalchemy import text
+from app.models import db, IncidentReport, CommunityPost, Comment, EmergencyContact, SOSAlert
 from app.auth_models import User
 from flask import send_from_directory
 
@@ -1571,12 +1570,6 @@ import numpy as np
 from math import radians, cos, sin, asin, sqrt, atan2
 import hashlib
 import os
-from .route_optimizer import (
-    calculate_route_hash,
-    get_route_from_osrm,
-    calculate_composite_score,
-    calculate_route_safety_comprehensive,
-)
 
 # Load safety data (robust to current working directory)
 try:
@@ -1619,16 +1612,288 @@ def calculate_crime_exposure(lat, lon, radius=0.003):
     except:
         return 0
 
+    def calculate_lighting_score(lat, lon, radius=0.005):
+        """Calculate lighting score at a location"""
+        try:
+        if lighting_data.empty:
+            return 5.0
+        nearby_lighting = lighting_data[
+            (abs(lighting_data['Latitude'] - lat) < radius) &
+            (abs(lighting_data['Longitude'] - lon) < radius)
+        ]
+        return nearby_lighting['lighting_score'].mean() if len(nearby_lighting) > 0 else 5.0
+    except:
+        return 5.0
+
+def calculate_population_score(lat, lon, radius=0.005):
+    """Calculate population/traffic score at a location"""
+    try:
+        if population_data.empty:
+            return 5.0, 5.0, False
+        nearby_pop = population_data[
+            (abs(population_data['Latitude'] - lat) < radius) &
+            (abs(population_data['Longitude'] - lon) < radius)
+        ]
+        if len(nearby_pop) > 0:
+            return (
+                nearby_pop['population_density'].mean() / 1000,
+                nearby_pop['traffic_level'].mean() / 10,
+                nearby_pop['is_main_road'].mean() > 0.5
+            )
+        return 5.0, 5.0, False
+    except:
+        return 5.0, 5.0, False
+
+
+    def calculate_route_hash(route):
+        """Create hash for route deduplication"""
+        if not route or len(route) < 2:
+            return None
+        sample_indices = [0, len(route)//4, len(route)//2, 3*len(route)//4, len(route)-1]
+        sample_points = [route[i] for i in sample_indices if i < len(route)]
+        hash_string = ''.join([f"{lat:.4f},{lon:.4f}" for lat, lon in sample_points])
+        return hashlib.md5(hash_string.encode()).hexdigest()
+
+    def calculate_route_safety_comprehensive(route, preferences=None):
+        """Enhanced safety calculation with crime hotspot detection and preference multipliers"""
+        if not route or len(route) < 2:
+            return None
+    
+        if preferences is None:
+            preferences = {}
+    
+        try:
+            sample_rate = max(1, len(route) // 50)
+            sampled_route = route[::sample_rate]
+        
+            total_crime = 0
+            max_crime_at_point = 0
+            crime_hotspot_count = 0
+            total_lighting = 0
+            total_population = 0
+            total_traffic = 0
+            main_road_count = 0
+        
+            for lat, lon in sampled_route:
+                crime_count = calculate_crime_exposure(lat, lon, radius=0.003)
+                total_crime += crime_count
+                max_crime_at_point = max(max_crime_at_point, crime_count)
+                if crime_count > 3:
+                    crime_hotspot_count += 1
+            
+                light_score = calculate_lighting_score(lat, lon, radius=0.005)
+                total_lighting += light_score
+            
+                pop_score, traffic_score, is_main_road = calculate_population_score(lat, lon, radius=0.005)
+                total_population += pop_score
+                total_traffic += traffic_score
+                if is_main_road:
+                    main_road_count += 1
+        
+            n_points = len(sampled_route)
+        
+            avg_crime = total_crime / n_points
+            avg_lighting = total_lighting / n_points
+            avg_population = total_population / n_points
+            avg_traffic = total_traffic / n_points
+            main_road_pct = (main_road_count / n_points) * 100
+            crime_hotspot_pct = (crime_hotspot_count / n_points) * 100
+        
+            # Enhanced crime penalty calculation with exponential scaling
+            base_crime_penalty = min(40, avg_crime ** 1.2 * 5)
+            max_crime_penalty = min(40, max_crime_at_point ** 1.4 * 7)
+            hotspot_penalty = min(30, crime_hotspot_pct * 0.5)
+        
+            total_crime_penalty = base_crime_penalty + max_crime_penalty + hotspot_penalty
+        
+            base_safety_score = max(0, 100 - total_crime_penalty)
+        
+            # Preference-based multipliers
+            lighting_multiplier = 1.0 + (avg_lighting / 10) * (2.5 if preferences.get('prefer_well_lit') else 0.8)
+            population_multiplier = 1.0 + (avg_population / 10) * (2.0 if preferences.get('prefer_populated') else 0.6)
+            traffic_multiplier = 1.0 + (avg_traffic / 10) * (1.5 if preferences.get('prefer_populated') else 0.4)
+            main_road_multiplier = 1.0 + (main_road_pct / 100) * (2.5 if preferences.get('prefer_main_roads') else 0.7)
+        
+            total_multiplier = (lighting_multiplier + population_multiplier + traffic_multiplier + main_road_multiplier) / 4
+        
+            final_safety_score = min(100, base_safety_score * total_multiplier)
+        
+            crime_density_score = 100 - min(100, avg_crime * 10)
+        
+            return {
+                'safety_score': round(final_safety_score, 2),
+                'crime_density': round(avg_crime, 2),
+                'max_crime_exposure': round(max_crime_at_point, 2),
+                'crime_hotspot_percentage': round(crime_hotspot_pct, 2),
+                'lighting_score': round(avg_lighting, 2),
+                'population_score': round(avg_population, 2),
+                'traffic_score': round(avg_traffic, 2),
+                'main_road_percentage': round(main_road_pct, 2),
+                'crime_density_score': round(crime_density_score, 2)
+            }
+        
+        except Exception as e:
+            print(f"Error calculating safety: {e}")
+            return None
+
+    def get_route_from_osrm(start_lat, start_lon, end_lat, end_lon, waypoint=None):
+        """Get route from OSRM with optional waypoint, includes turn-by-turn steps"""
+        try:
+            if waypoint:
+                url = f"http://router.project-osrm.org/route/v1/driving/{start_lon},{start_lat};{waypoint['lon']},{waypoint['lat']};{end_lon},{end_lat}"
+            else:
+                url = f"http://router.project-osrm.org/route/v1/driving/{start_lon},{start_lat};{end_lon},{end_lat}"
+        
+            params = {
+                'overview': 'full',
+                'geometries': 'geojson',
+                'alternatives': 'true',
+                'steps': 'true'
+            }
+        
+            response = requests.get(url, params=params, timeout=10)
+            data = response.json()
+        
+            if data['code'] != 'Ok':
+                return None
+        
+            routes = []
+            for route_data in data.get('routes', []):
+                if 'geometry' not in route_data:
+                    continue
+            
+                coordinates = route_data['geometry']['coordinates']
+                if not coordinates or len(coordinates) < 2:
+                    continue
+            
+                route = [[coord[1], coord[0]] for coord in coordinates]
+            
+                # Verify route endpoints
+                start_dist = haversine_distance(start_lat, start_lon, route[0][0], route[0][1])
+                end_dist = haversine_distance(end_lat, end_lon, route[-1][0], route[-1][1])
+            
+                if start_dist > 0.2 or end_dist > 0.2:
+                    continue
+            
+                # Extract turn-by-turn instructions from OSRM
+                steps = []
+                if 'legs' in route_data:
+                    step_number = 1
+                    for leg in route_data['legs']:
+                        if 'steps' in leg:
+                            for step in leg['steps']:
+                                if 'maneuver' in step:
+                                    instruction = step['maneuver'].get('instruction', step.get('name', 'Continue'))
+                                    distance = step.get('distance', 0)
+                                    steps.append({
+                                        'number': step_number,
+                                        'instruction': instruction,
+                                        'distance': round(distance, 1),
+                                        'distance_text': f"{distance:.0f}m" if distance < 1000 else f"{distance/1000:.1f}km"
+                                    })
+                                    step_number += 1
+            
+                routes.append({
+                    'route': route,
+                    'distance_km': route_data['distance'] / 1000,
+                    'duration_min': route_data['duration'] / 60,
+                    'waypoint': waypoint,
+                    'steps': steps
+                })
+        
+            return routes
+        
+        except Exception as e:
+            print(f"OSRM error: {e}")
+            return None
+
+    def calculate_composite_score(route, preferences):
+        """Calculate composite score with preference-based weighting"""
+        safety_weight = preferences.get('safety_weight', 0.7)
+        distance_weight = preferences.get('distance_weight', 0.3)
+    
+        safety_score = route.get('safety_score', 50)
+        distance_km = route.get('distance_km', 10)
+        crime_density = route.get('crime_density', 5)
+        max_crime = route.get('max_crime_exposure', 5)
+    
+        normalized_safety = safety_score / 100
+        normalized_distance = max(0, 1 - (distance_km / 30))
+    
+        crime_penalty = (crime_density * 0.3 + max_crime * 0.7) / 20
+        crime_penalty = min(1, crime_penalty)
+    
+        safety_component = normalized_safety * (1 - crime_penalty * 0.5)
+    
+        preference_bonus = 0
+        if preferences.get('prefer_main_roads'):
+            main_road_pct = route.get('main_road_percentage', 0)
+            preference_bonus += (main_road_pct / 100) * 0.15
+    
+        if preferences.get('prefer_well_lit'):
+            lighting_score = route.get('lighting_score', 5)
+            preference_bonus += (lighting_score / 10) * 0.15
+    
+        if preferences.get('prefer_populated'):
+            population_score = route.get('population_score', 5)
+            preference_bonus += (population_score / 10) * 0.15
+    
+        composite_score = (safety_component * safety_weight + 
+                          normalized_distance * distance_weight + 
+                          preference_bonus)
+    
+        return composite_score
+        
+        except Exception as e:
+            print(f"OSRM error: {e}")
+            return None
+
+    def calculate_composite_score(route, preferences):
+        """Calculate composite score with preference-based weighting"""
+        safety_weight = preferences.get('safety_weight', 0.7)
+        distance_weight = preferences.get('distance_weight', 0.3)
+    
+        safety_score = route.get('safety_score', 50)
+        distance_km = route.get('distance_km', 10)
+        crime_density = route.get('crime_density', 5)
+        max_crime = route.get('max_crime_exposure', 5)
+    
+        normalized_safety = safety_score / 100
+        normalized_distance = max(0, 1 - (distance_km / 30))
+    
+        crime_penalty = (crime_density * 0.3 + max_crime * 0.7) / 20
+        crime_penalty = min(1, crime_penalty)
+    
+        safety_component = normalized_safety * (1 - crime_penalty * 0.5)
+    
+        preference_bonus = 0
+        if preferences.get('prefer_main_roads'):
+            main_road_pct = route.get('main_road_percentage', 0)
+            preference_bonus += (main_road_pct / 100) * 0.15
+    
+        if preferences.get('prefer_well_lit'):
+            lighting_score = route.get('lighting_score', 5)
+            preference_bonus += (lighting_score / 10) * 0.15
+    
+        if preferences.get('prefer_populated'):
+            population_score = route.get('population_score', 5)
+            preference_bonus += (population_score / 10) * 0.15
+    
+        composite_score = (safety_component * safety_weight + 
+                          normalized_distance * distance_weight + 
+                          preference_bonus)
+    
+        return composite_score
 
 @bp.route('/safe-routes')
 def safe_routes():
-    """Render full-featured Safe Routes page with navbar."""
+    """Render Safe Routes inside the app shell with navbar (via iframe wrapper)."""
     return render_template('safe_routes_container.html')
 
 @bp.route('/safe-routes-standalone')
 def safe_routes_standalone():
-    """Standalone Safe Routes UI mapped to full feature template."""
-    return render_template('safe_routes_FULL.html')
+    """Standalone Safe Routes UI (original full-screen version) used inside iframe wrapper."""
+    return render_template('safe_routes_simple.html')
 
 @bp.route('/safe-routes-full')
 def safe_routes_full():
@@ -1714,18 +1979,8 @@ def api_calculate_route():
         distance_km = route['distance'] / 1000
         duration_min = int(route['duration'] / 60)
         
-        # Calculate safety using comprehensive scoring
-        safety_details = calculate_route_safety_comprehensive(
-            route_coords,
-            crime_data,
-            lighting_data,
-            population_data,
-            preferences={},
-        )
-        # Scale to 0-10 for backward compatibility with simple UI
-        safety_score = None
-        if safety_details and 'safety_score' in safety_details:
-            safety_score = round(safety_details['safety_score'] / 10.0, 1)
+        # Calculate safety score
+        safety_score = calculate_route_safety(route_coords)
         
         return jsonify({
             'success': True,
@@ -1913,16 +2168,9 @@ def api_optimize_route():
             for idx, route_data in enumerate(direct_routes):
                 route_hash = calculate_route_hash(route_data['route'])
                 if route_hash and route_hash not in route_hashes:
-                    safety = calculate_route_safety_comprehensive(
-                        route_data['route'],
-                        crime_data,
-                        lighting_data,
-                        population_data,
-                        preferences,
-                    )
+                    safety = calculate_route_safety_comprehensive(route_data['route'], preferences)
                     if safety:
                         route_data.update(safety)
-                        route_data['route_hash'] = route_hash
                         route_data['source'] = f'direct_{idx+1}'
                         route_data['type'] = 'direct'
                         all_routes.append(route_data)
@@ -1990,16 +2238,9 @@ def api_optimize_route():
                             route_hash = calculate_route_hash(route_data['route'])
                             
                             if route_hash and route_hash not in route_hashes:
-                                safety = calculate_route_safety_comprehensive(
-                                    route_data['route'],
-                                    crime_data,
-                                    lighting_data,
-                                    population_data,
-                                    preferences,
-                                )
+                                safety = calculate_route_safety_comprehensive(route_data['route'], preferences)
                                 if safety:
                                     route_data.update(safety)
-                                    route_data['route_hash'] = route_hash
                                     route_data['source'] = f'waypoint_{waypoint_count}'
                                     route_data['type'] = 'waypoint'
                                     all_routes.append(route_data)
@@ -2015,103 +2256,43 @@ def api_optimize_route():
         if len(all_routes) == 0:
             return jsonify({'success': False, 'error': 'No valid routes found'}), 404
         
-        print("\n--- Phase 3: Preference-Based Scoring (with personalization) ---")
+        print("\n--- Phase 3: Preference-Based Scoring ---")
         
-        # Load user preferences if available and override incoming weights
-        liked_hashes = set()
-        try:
-            if session.get('user_id'):
-                prefs = UserPreference.query.filter_by(user_id=session['user_id']).first()
-                if prefs:
-                    preferences['safety_weight'] = float(prefs.safety_weight or preferences['safety_weight'])
-                    preferences['distance_weight'] = float(prefs.distance_weight or preferences['distance_weight'])
-                    preferences['prefer_main_roads'] = bool(prefs.prefer_main_roads)
-                    preferences['prefer_well_lit'] = bool(prefs.prefer_well_lit)
-                    preferences['prefer_populated'] = bool(prefs.prefer_populated)
-                # Collect positively-rated route hashes for a small history bonus
-                rows = RouteFeedback.query.filter_by(user_id=session['user_id']).order_by(RouteFeedback.created_at.desc()).limit(100).all()
-                liked_hashes = {r.route_hash for r in rows if (r.rating or 0) >= 4 and r.route_hash}
-        except Exception as _:
-            pass
-
         for route in all_routes:
-            base = calculate_composite_score(route, preferences)
-            bonus = 0.0
-            try:
-                if route.get('route_hash') and route['route_hash'] in liked_hashes:
-                    bonus += 0.15
-                # Proximity bonus for similar endpoints to previously liked routes
-                if session.get('user_id'):
-                    prox = db.session.execute(text(
-                        """
-                        SELECT 1 FROM route_feedback
-                         WHERE user_id = :uid AND rating >= 4
-                           AND ABS(start_lat - :slat) < 0.01 AND ABS(start_lon - :slon) < 0.01
-                           AND ABS(end_lat - :elat) < 0.01 AND ABS(end_lon - :elon) < 0.01
-                         LIMIT 1
-                        """),
-                        {
-                            'uid': session['user_id'],
-                            'slat': float(start_lat), 'slon': float(start_lon),
-                            'elat': float(end_lat), 'elon': float(end_lon)
-                        }
-                    ).first()
-                    if prox:
-                        bonus += 0.1
-            except Exception:
-                pass
-            route['composite_score'] = base + bonus
+            route['composite_score'] = calculate_composite_score(route, preferences)
         
         all_routes.sort(key=lambda x: x['composite_score'], reverse=True)
         
         final_routes = all_routes[:7]
         print(f"Final routes to display: {len(final_routes)}")
         
-        # Track which categories have been assigned to avoid duplicates
-        assigned_categories = set()
-        min_distance = min(r['distance_km'] for r in final_routes)
-        min_crime = min(r['crime_density'] for r in final_routes)
-        
         for idx, route in enumerate(final_routes):
             route['rank'] = idx + 1
             route['is_recommended'] = (idx == 0)
             
-            # Assign unique category to each route
             if idx == 0:
                 category = 'best'
+                emoji = '⭐'
                 description = 'Best match for your preferences'
-            elif 'safest' not in assigned_categories and route['crime_density'] <= 1.5 and route['max_crime_exposure'] <= 3:
+            elif route['crime_density'] <= 1.5 and route['max_crime_exposure'] <= 3:
                 category = 'safest'
+                emoji = '🛡️'
                 description = 'Safest route (avoids crime hotspots)'
-            elif 'fastest' not in assigned_categories and route['distance_km'] <= min_distance * 1.02:
+            elif route['distance_km'] <= min(r['distance_km'] for r in final_routes) * 1.05:
                 category = 'fastest'
+                emoji = '⚡'
                 description = 'Shortest distance'
-            elif 'main_roads' not in assigned_categories and route['main_road_percentage'] >= 70:
+            elif route['main_road_percentage'] >= 70:
                 category = 'main_roads'
+                emoji = '🛣️'
                 description = 'Uses main roads'
-            elif 'well_lit' not in assigned_categories and route.get('lighting_score', 0) >= 7.5:
-                category = 'well_lit'
-                description = 'Well-lit route'
-            elif 'populated' not in assigned_categories and route.get('population_score', 0) >= 6:
-                category = 'populated'
-                description = 'Populated areas'
             else:
-                # Give each route a unique descriptor based on its characteristics
-                if route['crime_density'] <= min_crime * 1.2:
-                    category = 'low_crime'
-                    description = f"Low crime route ({route['crime_density']:.1f} incidents)"
-                elif route['distance_km'] <= min_distance * 1.15:
-                    category = 'short'
-                    description = f"Short route ({route['distance_km']:.1f}km)"
-                elif route['main_road_percentage'] >= 50:
-                    category = 'major_roads'
-                    description = f"Major roads ({route['main_road_percentage']:.0f}%)"
-                else:
-                    category = 'alternative'
-                    description = f"Alternative route"
+                category = 'balanced'
+                emoji = '⚖️'
+                description = 'Well-balanced option'
             
-            assigned_categories.add(category)
             route['category'] = category
+            route['emoji'] = emoji
             route['description'] = description
             route['distance_display'] = f"{route['distance_km']:.2f} km"
             route['duration_display'] = f"{int(route['duration_min'])} min"
@@ -2216,145 +2397,3 @@ def api_rate_route():
     except Exception as e:
         print(f"rate-route error: {e}")
         return jsonify({'success': False, 'error': 'Failed to save rating'}), 500
-
-@bp.route('/api/user-feedback', methods=['POST'])
-def api_user_feedback():
-    """Store user route feedback and update preferences for personalization."""
-    try:
-        payload = request.get_json(silent=True) or {}
-        rating = int(payload.get('rating', 0))
-        if rating < 1 or rating > 5:
-            return jsonify({'success': False, 'error': 'Rating must be 1-5'}), 400
-
-        user_id = session.get('user_id')
-        rh = payload.get('route_hash')
-        start_lat = float(payload.get('start_lat')) if payload.get('start_lat') is not None else None
-        start_lon = float(payload.get('start_lon')) if payload.get('start_lon') is not None else None
-        end_lat = float(payload.get('end_lat')) if payload.get('end_lat') is not None else None
-        end_lon = float(payload.get('end_lon')) if payload.get('end_lon') is not None else None
-        feedback_text = (payload.get('feedback') or '').strip()
-
-        rf = RouteFeedback(
-            user_id=user_id,
-            route_hash=rh,
-            start_lat=start_lat,
-            start_lon=start_lon,
-            end_lat=end_lat,
-            end_lon=end_lon,
-            rating=rating,
-            feedback=feedback_text,
-            safety_score=payload.get('safety_score'),
-            lighting_score=payload.get('lighting_score'),
-            population_score=payload.get('population_score'),
-            main_road_percentage=payload.get('main_road_percentage'),
-            distance_km=payload.get('distance_km'),
-            duration_min=payload.get('duration_min')
-        )
-        db.session.add(rf)
-
-        # Update preferences gently if logged in
-        if user_id:
-            prefs = UserPreference.query.filter_by(user_id=user_id).first()
-            if not prefs:
-                prefs = UserPreference(user_id=user_id)
-                db.session.add(prefs)
-
-            if rating >= 4:
-                # Nudge toward safety
-                sw = min(0.95, (prefs.safety_weight or 0.7) + 0.05)
-                dw = max(0.05, 1.0 - sw)
-                prefs.safety_weight, prefs.distance_weight = sw, dw
-                # Infer toggles
-                try:
-                    if (payload.get('lighting_score') or 0) >= 6:
-                        prefs.prefer_well_lit = True
-                    if (payload.get('population_score') or 0) >= 6:
-                        prefs.prefer_populated = True
-                    if (payload.get('main_road_percentage') or 0) >= 50:
-                        prefs.prefer_main_roads = True
-                except Exception:
-                    pass
-            elif rating <= 2:
-                # Relax safety slightly
-                sw = max(0.4, (prefs.safety_weight or 0.7) - 0.05)
-                dw = min(0.6, 1.0 - sw)
-                prefs.safety_weight, prefs.distance_weight = sw, dw
-
-        db.session.commit()
-        return jsonify({'success': True})
-    except Exception as e:
-        db.session.rollback()
-        print(f"user-feedback error: {e}")
-        return jsonify({'success': False, 'error': 'Failed to save feedback'}), 500
-
-@bp.route('/api/route-feedback', methods=['POST'])
-def api_route_feedback():
-    """
-    Comprehensive route safety feedback endpoint
-    Accepts detailed feedback about route safety features and user experience
-    """
-    try:
-        payload = request.get_json() or {}
-        
-        # Validate required fields
-        required_fields = ['route_from', 'route_to', 'travel_time', 'safety_rating', 'recommendation']
-        for field in required_fields:
-            if not payload.get(field):
-                return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
-        
-        # Validate safety rating
-        safety_rating = int(payload.get('safety_rating', 0))
-        if safety_rating < 1 or safety_rating > 5:
-            return jsonify({'success': False, 'error': 'Safety rating must be between 1 and 5'}), 400
-        
-        # Ensure data directory exists
-        os.makedirs('app/data', exist_ok=True)
-        feedback_file = 'app/data/route_feedback.json'
-        
-        # Load existing feedback
-        feedback_data = []
-        if os.path.exists(feedback_file):
-            try:
-                with open(feedback_file, 'r', encoding='utf-8') as f:
-                    feedback_data = json.load(f)
-            except Exception as e:
-                print(f"Error loading feedback data: {e}")
-                feedback_data = []
-        
-        # Create feedback entry
-        feedback_entry = {
-            'route_id': payload.get('route_id', f'route_{len(feedback_data) + 1}'),
-            'route_from': payload.get('route_from'),
-            'route_to': payload.get('route_to'),
-            'travel_time': payload.get('travel_time'),
-            'safety_rating': safety_rating,
-            'safety_features': payload.get('safety_features', []),
-            'recommendation': payload.get('recommendation'),
-            'suggested_improvements': payload.get('suggested_improvements', ''),
-            'safety_concerns': payload.get('safety_concerns', ''),
-            'timestamp': datetime.utcnow().isoformat(),
-            'user_id': session.get('user_id', 'anonymous')
-        }
-        
-        # Append new feedback
-        feedback_data.append(feedback_entry)
-        
-        # Save to file
-        with open(feedback_file, 'w', encoding='utf-8') as f:
-            json.dump(feedback_data, f, indent=2, ensure_ascii=False)
-        
-        print(f"✅ Route feedback saved: {feedback_entry['route_from']} → {feedback_entry['route_to']} (Rating: {safety_rating}/5)")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Thank you for your feedback!',
-            'feedback_id': len(feedback_data)
-        })
-        
-    except ValueError as e:
-        return jsonify({'success': False, 'error': 'Invalid rating value'}), 400
-    except Exception as e:
-        print(f"❌ route-feedback error: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': 'Failed to save feedback'}), 500

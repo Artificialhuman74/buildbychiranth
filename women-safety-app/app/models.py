@@ -246,3 +246,54 @@ class SOSAlert(db.Model):
             'battery_level': self.battery_level,
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None
         }
+
+
+# ====== Safe Routes: User Preferences and Feedback ======
+
+class UserPreference(db.Model):
+    """Per-user preference weights for route ranking/personalization"""
+    __tablename__ = 'user_preferences'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
+
+    # Weights sum doesn't need to be enforced strictly; we'll normalize in code
+    safety_weight = db.Column(db.Float, default=0.7)
+    distance_weight = db.Column(db.Float, default=0.3)
+
+    # Preference toggles inferred from feedback over time
+    prefer_main_roads = db.Column(db.Boolean, default=False)
+    prefer_well_lit = db.Column(db.Boolean, default=False)
+    prefer_populated = db.Column(db.Boolean, default=False)
+
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class RouteFeedback(db.Model):
+    """Store user feedback for specific routes to learn preferences."""
+    __tablename__ = 'route_feedback'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # allow anonymous
+
+    # Identify route by hash and endpoints
+    route_hash = db.Column(db.String(64), index=True)
+    start_lat = db.Column(db.Float)
+    start_lon = db.Column(db.Float)
+    end_lat = db.Column(db.Float)
+    end_lon = db.Column(db.Float)
+
+    # Feedback
+    rating = db.Column(db.Integer)  # 1-5
+    feedback = db.Column(db.Text)
+
+    # Optional route metrics snapshot to help learning
+    safety_score = db.Column(db.Float)
+    lighting_score = db.Column(db.Float)
+    population_score = db.Column(db.Float)
+    main_road_percentage = db.Column(db.Float)
+    distance_km = db.Column(db.Float)
+    duration_min = db.Column(db.Float)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
