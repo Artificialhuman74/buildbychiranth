@@ -248,52 +248,75 @@ class SOSAlert(db.Model):
         }
 
 
-# ====== Safe Routes: User Preferences and Feedback ======
-
 class UserPreference(db.Model):
-    """Per-user preference weights for route ranking/personalization"""
+    """Store user preferences for safe routes"""
     __tablename__ = 'user_preferences'
-
+    
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
-
-    # Weights sum doesn't need to be enforced strictly; we'll normalize in code
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    
+    # Route preferences
+    prefer_well_lit = db.Column(db.Boolean, default=True)
+    prefer_populated = db.Column(db.Boolean, default=True)
+    prefer_main_roads = db.Column(db.Boolean, default=False)
     safety_weight = db.Column(db.Float, default=0.7)
     distance_weight = db.Column(db.Float, default=0.3)
-
-    # Preference toggles inferred from feedback over time
-    prefer_main_roads = db.Column(db.Boolean, default=False)
-    prefer_well_lit = db.Column(db.Boolean, default=False)
-    prefer_populated = db.Column(db.Boolean, default=False)
-
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    user = db.relationship('User', backref=db.backref('preferences', uselist=False))
+    
+    def __repr__(self):
+        return f'<UserPreference User {self.user_id}>'
+    
+    def to_dict(self):
+        return {
+            'prefer_well_lit': self.prefer_well_lit,
+            'prefer_populated': self.prefer_populated,
+            'prefer_main_roads': self.prefer_main_roads,
+            'safety_weight': self.safety_weight,
+            'distance_weight': self.distance_weight
+        }
 
 
 class RouteFeedback(db.Model):
-    """Store user feedback for specific routes to learn preferences."""
+    """Store user feedback on safe routes"""
     __tablename__ = 'route_feedback'
-
+    
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # allow anonymous
-
-    # Identify route by hash and endpoints
-    route_hash = db.Column(db.String(64), index=True)
-    start_lat = db.Column(db.Float)
-    start_lon = db.Column(db.Float)
-    end_lat = db.Column(db.Float)
-    end_lon = db.Column(db.Float)
-
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    
+    # Route details
+    route_hash = db.Column(db.String(64), nullable=False)
+    start_lat = db.Column(db.Float, nullable=False)
+    start_lon = db.Column(db.Float, nullable=False)
+    end_lat = db.Column(db.Float, nullable=False)
+    end_lon = db.Column(db.Float, nullable=False)
+    
     # Feedback
-    rating = db.Column(db.Integer)  # 1-5
-    feedback = db.Column(db.Text)
-
-    # Optional route metrics snapshot to help learning
-    safety_score = db.Column(db.Float)
-    lighting_score = db.Column(db.Float)
-    population_score = db.Column(db.Float)
-    main_road_percentage = db.Column(db.Float)
-    distance_km = db.Column(db.Float)
-    duration_min = db.Column(db.Float)
-
+    rating = db.Column(db.Integer, nullable=False)  # 1-5
+    felt_safe = db.Column(db.Boolean, nullable=True)
+    would_use_again = db.Column(db.Boolean, nullable=True)
+    issues = db.Column(db.Text, nullable=True)
+    
+    # Metadata
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
+    
+    # Relationships
+    user = db.relationship('User', backref=db.backref('route_feedback', lazy=True), foreign_keys=[user_id])
+    
+    def __repr__(self):
+        return f'<RouteFeedback {self.id} Rating:{self.rating}>'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'rating': self.rating,
+            'felt_safe': self.felt_safe,
+            'would_use_again': self.would_use_again,
+            'issues': self.issues,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S')
+        }

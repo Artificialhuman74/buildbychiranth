@@ -1,7 +1,6 @@
-{% include 'safe_routes_simple.html' %}{% extends "base.html" %}
+{% extends "base.html" %}
 
-
-{% block title %}Safe Routes - Gringotts{% endblock %}
+{% block title %}Safe Routes - SafeSpace{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -454,7 +453,7 @@
         // Reverse geocode to get address
         try {
             const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`, {
-                headers: {'User-Agent': 'Gringotts-WomenSafety/1.0'}
+                headers: {'User-Agent': 'SafeSpace-WomenSafety/1.0'}
             });
             const data = await response.json();
             if (data.display_name) {
@@ -488,7 +487,7 @@
         // Reverse geocode to get address
         try {
             const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`, {
-                headers: {'User-Agent': 'Gringotts-WomenSafety/1.0'}
+                headers: {'User-Agent': 'SafeSpace-WomenSafety/1.0'}
             });
             const data = await response.json();
             if (data.display_name) {
@@ -508,7 +507,7 @@
         
         try {
             const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ', Bangalore, India')}&format=json&limit=5`, {
-                headers: {'User-Agent': 'Gringotts-WomenSafety/1.0'}
+                headers: {'User-Agent': 'SafeSpace-WomenSafety/1.0'}
             });
             const results = await response.json();
             

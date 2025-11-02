@@ -3,6 +3,7 @@ from werkzeug.utils import secure_filename
 import os
 import json
 import requests
+import time
 from datetime import datetime
 from app.models import db, IncidentReport, CommunityPost, Comment, EmergencyContact, SOSAlert, UserPreference, RouteFeedback
 from sqlalchemy import text
@@ -19,6 +20,19 @@ def _gemini_url():
     if not key:
         return None
     return f'https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent?key={key}'
+
+@bp.route('/favicon.ico')
+def favicon():
+    """Serve a tiny inline SVG favicon to avoid 404s in the console."""
+    svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+        "<rect width='64' height='64' rx='12' fill='#6B7FD7'/>"
+        "<path fill='#ffffff' d='M32 10l16 6v12c0 10.5-7.2 19.4-16 22-8.8-2.6-16-11.5-16-22V16l16-6z'/>"
+        "</svg>"
+    )
+    resp = make_response(svg)
+    resp.headers['Content-Type'] = 'image/svg+xml'
+    return resp
 
 @bp.route('/api/ai-status')
 def ai_status():
@@ -253,7 +267,14 @@ def _append_json(path, entry):
 
 def send_sms_alert(contacts, user_name, location_link, battery_level, user_phone=None):
     """
-    Send SMS alerts to emergency contacts using the user's own phone number as sender
+    Send SMS alerts to emergency contacts.
+
+    Behavior:
+    - Prefer Fast2SMS if FAST2SMS_API_KEY and a user_phone are available.
+    - Fallback to Twilio if TWILIO_* creds exist and user_phone is provided (must be verified/sender-capable).
+    - Always write a log entry to app/uploads/sos/logs/sms_log.json for audit.
+
+    Returns: int -> actual number of successfully submitted SMS via provider (0 when only mocked/logged).
     """
     try:
         bl = int(battery_level)
@@ -278,6 +299,27 @@ def send_sms_alert(contacts, user_name, location_link, battery_level, user_phone
     real_sent = 0
     provider = "MOCK"
     
+    def _digits_only(num: str) -> str:
+        return ''.join(ch for ch in (num or '') if ch.isdigit())
+    
+    # Normalize for Fast2SMS (expects 10-digit Indian numbers in many cases)
+    def _fmt_fast2sms(num: str) -> str:
+        d = _digits_only(num)
+        # Trim leading country code 91 if present
+        if d.startswith('91') and len(d) == 12:
+            d = d[2:]
+        return d
+    
+    # Normalize for Twilio (E.164). Default to +91 if 10 digits assumed India.
+    def _fmt_twilio(num: str) -> str:
+        d = _digits_only(num)
+        if len(d) == 10:
+            return "+91" + d
+        if d.startswith('91') and len(d) == 12:
+            return "+" + d
+        # If already includes country code with +, return as-is
+        return ("+" + d) if not num.startswith('+') else num
+    
     # Try Fast2SMS with user's own number as sender
     fast2sms_key = os.environ.get('FAST2SMS_API_KEY')
     if fast2sms_key and user_phone:
@@ -285,17 +327,15 @@ def send_sms_alert(contacts, user_name, location_link, battery_level, user_phone
             import requests
             provider = "Fast2SMS"
             
-            # Format user's phone for sender_id
-            sender_phone = user_phone.strip().replace('+', '').replace('-', '').replace(' ', '')
-            if sender_phone.startswith('91') and len(sender_phone) == 12:
-                sender_phone = sender_phone[2:]  # Remove country code for 10-digit
+            # Format user's phone for display (Fast2SMS free plan doesn't support custom sender_id)
+            sender_phone = _fmt_fast2sms(user_phone)
             
             for c in contacts:
                 try:
                     # Format recipient number
-                    phone = c.phone.strip().replace('+', '').replace('-', '').replace(' ', '')
-                    if phone.startswith('91') and len(phone) == 12:
-                        phone = phone[2:]
+                    phone = _fmt_fast2sms(c.phone)
+                    if len(phone) != 10:
+                        raise ValueError("Invalid recipient number for Fast2SMS (expect 10 digits)")
                     
                     url = "https://www.fast2sms.com/dev/bulkV2"
                     # Add sender info to message instead of sender_id (not supported by Fast2SMS free plan)
@@ -312,7 +352,13 @@ def send_sms_alert(contacts, user_name, location_link, battery_level, user_phone
                         "Content-Type": "application/x-www-form-urlencoded"
                     }
                     resp = requests.post(url, data=payload, headers=headers, timeout=10)
-                    if resp.status_code == 200 and resp.json().get('return'):
+                    ok = False
+                    try:
+                        data = resp.json()
+                        ok = bool(data.get('return'))
+                    except Exception:
+                        ok = (resp.status_code == 200)
+                    if ok:
                         real_sent += 1
                     else:
                         print(f"[Fast2SMS] Failed to send to {c.phone}: {resp.text}")
@@ -333,15 +379,11 @@ def send_sms_alert(contacts, user_name, location_link, battery_level, user_phone
                 provider = "Twilio"
                 
                 # Format user's phone for Twilio (E.164)
-                from_number = user_phone.strip()
-                if not from_number.startswith('+'):
-                    from_number = '+' + from_number
+                from_number = _fmt_twilio(user_phone)
                 
                 for c in contacts:
                     try:
-                        to_number = c.phone.strip()
-                        if not to_number.startswith('+'):
-                            to_number = '+' + to_number
+                        to_number = _fmt_twilio(c.phone)
                         client.messages.create(body=message, from_=from_number, to=to_number)
                         real_sent += 1
                     except Exception as sms_err:
@@ -372,7 +414,8 @@ def send_sms_alert(contacts, user_name, location_link, battery_level, user_phone
     }
     _append_json(os.path.join(logs_dir, 'sms_log.json'), log_entry)
     
-    return real_sent if real_sent > 0 else len(contacts)
+    # Return the actual number of messages successfully submitted to a provider
+    return int(real_sent)
 
 def send_all_clear_sms(contacts, user_name, user_phone=None):
     """Send 'All Clear' message using user's own phone number"""
@@ -392,15 +435,29 @@ def send_all_clear_sms(contacts, user_name, user_phone=None):
             import requests
             provider = "Fast2SMS"
             
-            sender_phone = user_phone.strip().replace('+', '').replace('-', '').replace(' ', '')
-            if sender_phone.startswith('91') and len(sender_phone) == 12:
-                sender_phone = sender_phone[2:]
+            # Reuse normalization helpers from send_sms_alert via local defs
+            def _digits_only(num: str) -> str:
+                return ''.join(ch for ch in (num or '') if ch.isdigit())
+            def _fmt_fast2sms(num: str) -> str:
+                d = _digits_only(num)
+                if d.startswith('91') and len(d) == 12:
+                    d = d[2:]
+                return d
+            def _fmt_twilio(num: str) -> str:
+                d = _digits_only(num)
+                if len(d) == 10:
+                    return "+91" + d
+                if d.startswith('91') and len(d) == 12:
+                    return "+" + d
+                return ("+" + d) if not num.startswith('+') else num
+
+            sender_phone = _fmt_fast2sms(user_phone)
             
             for c in contacts:
                 try:
-                    phone = c.phone.strip().replace('+', '').replace('-', '').replace(' ', '')
-                    if phone.startswith('91') and len(phone) == 12:
-                        phone = phone[2:]
+                    phone = _fmt_fast2sms(c.phone)
+                    if len(phone) != 10:
+                        raise ValueError("Invalid recipient number for Fast2SMS (expect 10 digits)")
                     
                     url = "https://www.fast2sms.com/dev/bulkV2"
                     # Add sender info to message
@@ -417,7 +474,13 @@ def send_all_clear_sms(contacts, user_name, user_phone=None):
                         "Content-Type": "application/x-www-form-urlencoded"
                     }
                     resp = requests.post(url, data=payload, headers=headers, timeout=10)
-                    if resp.status_code == 200 and resp.json().get('return'):
+                    ok = False
+                    try:
+                        data = resp.json()
+                        ok = bool(data.get('return'))
+                    except Exception:
+                        ok = (resp.status_code == 200)
+                    if ok:
                         real_sent += 1
                 except Exception as sms_err:
                     print(f"[Fast2SMS] Failed to send ALL CLEAR to {c.phone}: {sms_err}")
@@ -435,15 +498,11 @@ def send_all_clear_sms(contacts, user_name, user_phone=None):
                 client = Client(tw_sid, tw_token)
                 provider = "Twilio"
                 
-                from_number = user_phone.strip()
-                if not from_number.startswith('+'):
-                    from_number = '+' + from_number
+                from_number = _fmt_twilio(user_phone)
                 
                 for c in contacts:
                     try:
-                        to_number = c.phone.strip()
-                        if not to_number.startswith('+'):
-                            to_number = '+' + to_number
+                        to_number = _fmt_twilio(c.phone)
                         client.messages.create(body=message, from_=from_number, to=to_number)
                         real_sent += 1
                     except Exception as sms_err:
@@ -471,7 +530,7 @@ def send_all_clear_sms(contacts, user_name, user_phone=None):
     }
     _append_json(os.path.join(logs_dir, 'sms_log.json'), log_entry)
     
-    return real_sent if real_sent > 0 else len(contacts)
+    return int(real_sent)
 
 @bp.route('/profile/delete', methods=['POST'])
 def delete_profile():
@@ -1556,42 +1615,69 @@ def chat_api():
         "Assistant (empathetic, concise, helpful):"
     )
 
+    # Gentle rate limiting per session to avoid spamming provider
+    try:
+        last_ts = session.get('last_chat_ts')
+        now_ts = time.time()
+        if last_ts and (now_ts - float(last_ts)) < 1.0:
+            # Small delay to smooth bursts
+            time.sleep(0.4)
+        session['last_chat_ts'] = now_ts
+    except Exception:
+        pass
+
     url = _gemini_url()
     if url:
-        try:
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.8,
-                    "topK": 40,
-                    "topP": 0.9,
-                    "maxOutputTokens": 400
-                }
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.8,
+                "topK": 40,
+                "topP": 0.9,
+                "maxOutputTokens": 400
             }
-            response = requests.post(
-                url,
-                headers={'Content-Type': 'application/json'},
-                json=payload,
-                timeout=30
-            )
-            if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and len(result['candidates']) > 0:
-                    ai_response = result['candidates'][0]['content']['parts'][0]['text'].strip()
-                    # Update history
-                    history.append({'user': user_message, 'ai': ai_response})
-                    session['chat_history'] = history[-6:]
-                    return jsonify({'success': True, 'message': ai_response, 'provider': 'gemini'})
-            else:
-                # Log non-200 for diagnosis
-                try:
-                    print(f"Gemini non-200: {response.status_code} -> {response.text[:400]}")
-                except Exception:
-                    pass
-        except requests.exceptions.Timeout:
-            return jsonify({'success': False, 'message': "The response is taking longer than expected. Please try again or call 181 for immediate help."}), 500
-        except Exception as e:
-            print(f"Chat API Error: {str(e)}")
+        }
+        # Up to 3 attempts with backoff for transient errors (e.g., 429/5xx)
+        backoffs = [0, 0.7, 1.5]
+        for attempt, delay in enumerate(backoffs, start=1):
+            try:
+                if delay:
+                    time.sleep(delay)
+                response = requests.post(
+                    url,
+                    headers={'Content-Type': 'application/json'},
+                    json=payload,
+                    timeout=30
+                )
+                if response.status_code == 200:
+                    result = response.json()
+                    if 'candidates' in result and len(result['candidates']) > 0:
+                        ai_response = result['candidates'][0]['content']['parts'][0]['text'].strip()
+                        history.append({'user': user_message, 'ai': ai_response})
+                        session['chat_history'] = history[-6:]
+                        return jsonify({'success': True, 'message': ai_response, 'provider': 'gemini'})
+                    # No candidates: treat as transient failure and possibly retry once
+                elif response.status_code in (429, 500, 502, 503, 504):
+                    # Log and retry if attempts remain
+                    try:
+                        print(f"Gemini transient {response.status_code}: {response.text[:200]}")
+                    except Exception:
+                        pass
+                    if attempt < len(backoffs):
+                        continue
+                else:
+                    try:
+                        print(f"Gemini non-200: {response.status_code} -> {response.text[:400]}")
+                    except Exception:
+                        pass
+                    break  # non-retriable
+            except requests.exceptions.Timeout:
+                if attempt < len(backoffs):
+                    continue
+                return jsonify({'success': False, 'message': "The response is taking longer than expected. Please try again or call 181 for immediate help."}), 500
+            except Exception as e:
+                print(f"Chat API Error: {str(e)}")
+                break
 
     # Rule-based fallback (works offline without API key)
     fallback = _rule_based_support_reply(user_message)
@@ -1605,12 +1691,251 @@ import numpy as np
 from math import radians, cos, sin, asin, sqrt, atan2
 import hashlib
 import os
-from .route_optimizer import (
-    calculate_route_hash,
-    get_route_from_osrm,
-    calculate_composite_score,
-    calculate_route_safety_comprehensive,
-)
+
+# Route optimization functions (copied from app.py since route_optimizer is empty)
+def validate_coordinates(lat, lon):
+    BANGALORE_BOUNDS = {
+        'min_lat': 12.704192, 'max_lat': 13.173706,
+        'min_lon': 77.269876, 'max_lon': 77.850066
+    }
+    try:
+        lat, lon = float(lat), float(lon)
+        return (BANGALORE_BOUNDS['min_lat'] <= lat <= BANGALORE_BOUNDS['max_lat'] and
+                BANGALORE_BOUNDS['min_lon'] <= lon <= BANGALORE_BOUNDS['max_lon'])
+    except:
+        return False
+
+def calculate_route_hash(route):
+    if not route or len(route) < 2:
+        return None
+    sample_indices = [0, len(route)//4, len(route)//2, 3*len(route)//4, len(route)-1]
+    sample_points = [route[i] for i in sample_indices if i < len(route)]
+    hash_string = ''.join([f"{lat:.4f},{lon:.4f}" for lat, lon in sample_points])
+    return hashlib.md5(hash_string.encode()).hexdigest()
+
+def calculate_crime_exposure(lat, lon, radius=0.003):
+    try:
+        nearby_crimes = crime_data[
+            (abs(crime_data['Latitude'] - lat) < radius) &
+            (abs(crime_data['Longitude'] - lon) < radius)
+        ]
+        return len(nearby_crimes)
+    except Exception as e:
+        print(f"❌ Error calculating crime: {e}")
+        return 0
+
+def calculate_lighting_score(lat, lon, radius=0.005):
+    try:
+        nearby_lighting = lighting_data[
+            (abs(lighting_data['Latitude'] - lat) < radius) &
+            (abs(lighting_data['Longitude'] - lon) < radius)
+        ]
+        return nearby_lighting['lighting_score'].mean() if len(nearby_lighting) > 0 else 5.0
+    except:
+        return 5.0
+
+def calculate_population_score(lat, lon, radius=0.005):
+    try:
+        nearby_pop = population_data[
+            (abs(population_data['Latitude'] - lat) < radius) &
+            (abs(population_data['Longitude'] - lon) < radius)
+        ]
+        if len(nearby_pop) > 0:
+            return (
+                nearby_pop['population_density'].mean() / 1000,
+                nearby_pop['traffic_level'].mean() / 10,
+                nearby_pop['is_main_road'].mean() > 0.5
+            )
+        return 5.0, 5.0, False
+    except:
+        return 5.0, 5.0, False
+
+def calculate_route_safety_comprehensive(route, preferences=None):
+    if not route or len(route) < 2:
+        return None
+    
+    if preferences is None:
+        preferences = {}
+    
+    try:
+        sample_rate = max(1, len(route) // 50)
+        sampled_route = route[::sample_rate]
+        
+        total_crime = 0
+        max_crime_at_point = 0
+        crime_hotspot_count = 0
+        total_lighting = 0
+        total_population = 0
+        total_traffic = 0
+        main_road_count = 0
+        
+        for lat, lon in sampled_route:
+            crime_count = calculate_crime_exposure(lat, lon, radius=0.003)
+            total_crime += crime_count
+            max_crime_at_point = max(max_crime_at_point, crime_count)
+            if crime_count > 3:
+                crime_hotspot_count += 1
+            
+            light_score = calculate_lighting_score(lat, lon, radius=0.005)
+            total_lighting += light_score
+            
+            pop_score, traffic_score, is_main_road = calculate_population_score(lat, lon, radius=0.005)
+            total_population += pop_score
+            total_traffic += traffic_score
+            if is_main_road:
+                main_road_count += 1
+        
+        n_points = len(sampled_route)
+        
+        avg_crime = total_crime / n_points
+        avg_lighting = total_lighting / n_points
+        avg_population = total_population / n_points
+        avg_traffic = total_traffic / n_points
+        main_road_pct = (main_road_count / n_points) * 100
+        crime_hotspot_pct = (crime_hotspot_count / n_points) * 100
+        
+        base_crime_penalty = min(40, avg_crime ** 1.2 * 5)
+        max_crime_penalty = min(40, max_crime_at_point ** 1.4 * 7)
+        hotspot_penalty = min(30, crime_hotspot_pct * 0.5)
+        
+        total_crime_penalty = base_crime_penalty + max_crime_penalty + hotspot_penalty
+        
+        base_safety_score = max(0, 100 - total_crime_penalty)
+        
+        lighting_multiplier = 1.0 + (avg_lighting / 10) * (2.5 if preferences.get('prefer_well_lit') else 0.8)
+        population_multiplier = 1.0 + (avg_population / 10) * (2.0 if preferences.get('prefer_populated') else 0.6)
+        traffic_multiplier = 1.0 + (avg_traffic / 10) * (1.5 if preferences.get('prefer_populated') else 0.4)
+        main_road_multiplier = 1.0 + (main_road_pct / 100) * (2.5 if preferences.get('prefer_main_roads') else 0.7)
+        
+        total_multiplier = (lighting_multiplier + population_multiplier + traffic_multiplier + main_road_multiplier) / 4
+        
+        final_safety_score = min(100, base_safety_score * total_multiplier)
+        
+        crime_density_score = 100 - min(100, avg_crime * 10)
+        
+        return {
+            'safety_score': round(final_safety_score, 2),
+            'crime_density': round(avg_crime, 2),
+            'max_crime_exposure': round(max_crime_at_point, 2),
+            'crime_hotspot_percentage': round(crime_hotspot_pct, 2),
+            'lighting_score': round(avg_lighting, 2),
+            'population_score': round(avg_population, 2),
+            'traffic_score': round(avg_traffic, 2),
+            'main_road_percentage': round(main_road_pct, 2),
+            'crime_density_score': round(crime_density_score, 2)
+        }
+        
+    except Exception as e:
+        print(f"❌ Error calculating safety: {e}")
+        return None
+
+def get_route_from_osrm(start_lat, start_lon, end_lat, end_lon, waypoint=None):
+    try:
+        if not all(validate_coordinates(x, y) for x, y in [(start_lat, start_lon), (end_lat, end_lon)]):
+            return None
+        
+        if waypoint:
+            url = f"http://router.project-osrm.org/route/v1/driving/{start_lon},{start_lat};{waypoint['lon']},{waypoint['lat']};{end_lon},{end_lat}"
+        else:
+            url = f"http://router.project-osrm.org/route/v1/driving/{start_lon},{start_lat};{end_lon},{end_lat}"
+        
+        params = {
+            'overview': 'full',
+            'geometries': 'geojson',
+            'alternatives': 'true',
+            'steps': 'true'
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        if data['code'] != 'Ok':
+            return None
+        
+        routes = []
+        for route_data in data.get('routes', []):
+            if 'geometry' not in route_data:
+                continue
+            
+            coordinates = route_data['geometry']['coordinates']
+            if not coordinates or len(coordinates) < 2:
+                continue
+            
+            route = [[coord[1], coord[0]] for coord in coordinates]
+            
+            start_dist = haversine_distance(start_lat, start_lon, route[0][0], route[0][1])
+            end_dist = haversine_distance(end_lat, end_lon, route[-1][0], route[-1][1])
+            
+            if start_dist > 0.2 or end_dist > 0.2:
+                continue
+            
+            # Extract turn-by-turn instructions from OSRM
+            steps = []
+            if 'legs' in route_data:
+                step_number = 1
+                for leg in route_data['legs']:
+                    if 'steps' in leg:
+                        for step in leg['steps']:
+                            if 'maneuver' in step:
+                                instruction = step['maneuver'].get('instruction', step.get('name', 'Continue'))
+                                distance = step.get('distance', 0)
+                                steps.append({
+                                    'number': step_number,
+                                    'instruction': instruction,
+                                    'distance': round(distance, 1),
+                                    'distance_text': f"{distance:.0f}m" if distance < 1000 else f"{distance/1000:.1f}km"
+                                })
+                                step_number += 1
+            
+            routes.append({
+                'route': route,
+                'distance_km': route_data['distance'] / 1000,
+                'duration_min': route_data['duration'] / 60,
+                'waypoint': waypoint,
+                'steps': steps
+            })
+        
+        return routes
+        
+    except Exception as e:
+        print(f"❌ OSRM error: {e}")
+        return None
+
+def calculate_composite_score(route, preferences):
+    safety_weight = preferences.get('safety_weight', 0.7)
+    distance_weight = preferences.get('distance_weight', 0.3)
+    
+    safety_score = route.get('safety_score', 50)
+    distance_km = route.get('distance_km', 10)
+    crime_density = route.get('crime_density', 5)
+    max_crime = route.get('max_crime_exposure', 5)
+    
+    normalized_safety = safety_score / 100
+    normalized_distance = max(0, 1 - (distance_km / 30))
+    
+    crime_penalty = (crime_density * 0.3 + max_crime * 0.7) / 20
+    crime_penalty = min(1, crime_penalty)
+    
+    safety_component = normalized_safety * (1 - crime_penalty * 0.5)
+    
+    preference_bonus = 0
+    if preferences.get('prefer_main_roads'):
+        main_road_pct = route.get('main_road_percentage', 0)
+        preference_bonus += (main_road_pct / 100) * 0.15
+    
+    if preferences.get('prefer_well_lit'):
+        lighting_score = route.get('lighting_score', 5)
+        preference_bonus += (lighting_score / 10) * 0.15
+    
+    if preferences.get('prefer_populated'):
+        population_score = route.get('population_score', 5)
+        preference_bonus += (population_score / 10) * 0.15
+    
+    composite_score = (safety_component * safety_weight + 
+                      normalized_distance * distance_weight + 
+                      preference_bonus)
+    
+    return composite_score
 
 # Load safety data (robust to current working directory)
 try:
@@ -1657,7 +1982,7 @@ def calculate_crime_exposure(lat, lon, radius=0.003):
 @bp.route('/safe-routes')
 def safe_routes():
     """Render full-featured Safe Routes page with navbar."""
-    return render_template('safe_routes_container.html')
+    return render_template('safe_routes_FULL.html')
 
 @bp.route('/safe-routes-standalone')
 def safe_routes_standalone():
@@ -1949,10 +2274,7 @@ def api_optimize_route():
                 if route_hash and route_hash not in route_hashes:
                     safety = calculate_route_safety_comprehensive(
                         route_data['route'],
-                        crime_data,
-                        lighting_data,
-                        population_data,
-                        preferences,
+                        preferences
                     )
                     if safety:
                         route_data.update(safety)
@@ -2026,10 +2348,7 @@ def api_optimize_route():
                             if route_hash and route_hash not in route_hashes:
                                 safety = calculate_route_safety_comprehensive(
                                     route_data['route'],
-                                    crime_data,
-                                    lighting_data,
-                                    population_data,
-                                    preferences,
+                                    preferences
                                 )
                                 if safety:
                                     route_data.update(safety)

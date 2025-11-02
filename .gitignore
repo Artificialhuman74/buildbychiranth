@@ -1,71 +1,40 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual Environment
-.venv/
-venv/
-ENV/
-env/
-
-# Flask
-instance/
-.webassets-cache
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Environment variables
-.env
-.env.local
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
+##############################
+# Global
+##############################
 .DS_Store
 Thumbs.db
-desktop.ini
-
-# Logs
-logs/
-*.log
-
-# Uploads
-uploads/
-app/uploads/
-
-# Node modules
+*.pyc
+__pycache__/
+.vscode/
+.idea/
+.venv/
+env/
+venv/
 node_modules/
-
-# Temporary files
-temp-archive-full/
-*.tmp
-*.bak
-
-# Package files
 package-lock.json
+
+##############################
+# Python app (women-safety-app)
+##############################
+# Environment and certs
+women-safety-app/.env
+*.pem
+
+# Local SQLite db and instance data
+women-safety-app/instance/
+
+# Uploads and logs (generated at runtime)
+women-safety-app/app/uploads/
+
+# SOS logs/recordings (JSON + media)
+women-safety-app/app/uploads/sos/logs/
+women-safety-app/app/uploads/sos/recordings/
+
+# Caches
+women-safety-app/app/__pycache__/
+
+##############################
+# Temporary archives
+##############################
+temp-archive-full/
+__MACOSX/

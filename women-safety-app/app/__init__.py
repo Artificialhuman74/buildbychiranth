@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, Response
 from datetime import datetime
 import os
 from sqlalchemy import text
@@ -121,6 +121,17 @@ def create_app():
     
     from app import routes
     app.register_blueprint(routes.bp)
+    
+    # Provide a root-level favicon to prevent 404s in browser console
+    @app.route('/favicon.ico')
+    def _root_favicon():
+        svg = (
+            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+            "<rect width='64' height='64' rx='12' fill='#6B7FD7'/>"
+            "<path fill='#ffffff' d='M32 10l16 6v12c0 10.5-7.2 19.4-16 22-8.8-2.6-16-11.5-16-22V16l16-6z'/>"
+            "</svg>"
+        )
+        return Response(svg, mimetype='image/svg+xml')
     
     # Context processor to add today's date
     @app.context_processor

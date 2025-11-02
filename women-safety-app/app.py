@@ -5,14 +5,13 @@ import numpy as np
 from datetime import datetime
 import requests
 import os
-import argparse
 from dotenv import load_dotenv
 import geocoder
 from math import radians, cos, sin, asin, sqrt, atan2
 import hashlib
 from sqlalchemy import text
 
-load_dotenv()  # ensure .env variables (e.g., GEMINI_API_KEY) are loaded in dev
+load_dotenv()
 
 import os
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -764,19 +763,8 @@ def rate_route():
 # Note: Main routes (/, /login, /signup, /safe-routes, etc.) are handled by the blueprint
 
 if __name__ == '__main__':
-    # CLI flags for easier HTTPS startup in PowerShell (avoids env var hassles)
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('--https', action='store_true', help='Start server with HTTPS using cert.pem/key.pem')
-    parser.add_argument('--https-port', type=int, default=int(os.getenv('HTTPS_PORT', '5443')), help='HTTPS port')
-    try:
-        args, _ = parser.parse_known_args()
-    except SystemExit:
-        class _Args: pass
-        args = _Args()
-        args.https = False
-        args.https_port = int(os.getenv('HTTPS_PORT', '5443'))
     print("\n" + "="*60)
-    print("🚀 Women's Safety App - FULL APPLICATION")
+    print("🚀 Women's Safety App - FULL APPLICATION (HTTPS)")
     print("="*60)
     print(f"📊 Crime data: {len(crime_data)} records")
     print(f"💡 Lighting data: {len(lighting_data)} points")
@@ -789,26 +777,19 @@ if __name__ == '__main__':
     print("✅ SOS Center")
     print("✅ Emergency Contacts")
     print("✅ Fake Call Feature")
+    print("="*60)
+    print("🔒 Running on HTTPS with self-signed certificate")
+    print("⚠️  Accept the security warning in your browser")
     print("="*60 + "\n")
-    # HTTPS support via env (USE_HTTPS=1) or CLI flag (--https)
-    use_https = args.https or (str(os.getenv('USE_HTTPS', '0')).lower() in ('1', 'true', 'yes'))
-    cert_path = os.path.join(basedir, 'cert.pem')
-    key_path = os.path.join(basedir, 'key.pem')
-
-    if use_https and os.path.exists(cert_path) and os.path.exists(key_path):
-        https_port = int(args.https_port)
-        print("🔐 Starting HTTPS server")
-        print(f"   Certificate: {cert_path}")
-        print(f"   Key        : {key_path}")
-        print(f"   URL        : https://127.0.0.1:{https_port}")
-        try:
-            import socket
-            ip = socket.gethostbyname(socket.gethostname())
-            print(f"   LAN URL    : https://{ip}:{https_port}")
-        except Exception:
-            pass
-        app.run(debug=True, host='0.0.0.0', port=https_port, ssl_context=(cert_path, key_path))
+    
+    # Use HTTPS with self-signed certificate
+    import os
+    cert_file = os.path.join(os.path.dirname(__file__), 'cert.pem')
+    key_file = os.path.join(os.path.dirname(__file__), 'key.pem')
+    
+    if os.path.exists(cert_file) and os.path.exists(key_file):
+        app.run(debug=True, host='0.0.0.0', port=5443, ssl_context=(cert_file, key_file))
     else:
-        if use_https:
-            print("⚠️ USE_HTTPS is set, but cert.pem/key.pem were not found. Falling back to HTTP on :5000")
+        print("⚠️  SSL certificates not found! Run: python generate_cert.py")
+        print("    Falling back to HTTP on port 5000...")
         app.run(debug=True, host='0.0.0.0', port=5000)

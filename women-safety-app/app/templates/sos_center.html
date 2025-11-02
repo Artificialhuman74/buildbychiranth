@@ -249,6 +249,20 @@
     locStatus.innerHTML = 'Location will start when you press SOS.';
   }
 
+  // Preflight location permission check to provide clearer status
+  if ('permissions' in navigator && typeof navigator.permissions.query === 'function') {
+    try {
+      navigator.permissions.query({ name: 'geolocation' }).then(function (res) {
+        const map = { 'granted': 'Location ready.', 'prompt': 'Location permission will be requested on SOS.', 'denied': 'Location permission denied. Enable it in site settings.' };
+        if (res && res.state && locStatus) locStatus.textContent = map[res.state] || 'Location status unknown.';
+        if (res) res.onchange = function () {
+          const st = { 'granted': 'Location ready.', 'prompt': 'Location permission will be requested on SOS.', 'denied': 'Location permission denied. Enable it in site settings.' };
+          if (locStatus) locStatus.textContent = st[res.state] || 'Location status changed.';
+        };
+      }).catch(function(){ /* ignore */ });
+    } catch(_) { /* ignore */ }
+  }
+
   async function startMedia(){
     if(mediaStream) return mediaStream;
     try{
@@ -589,12 +603,35 @@
       console.log('Battery API not available');
     }
     
-    // Log SOS event
+    // Get current location for SOS alert
+    let currentLocation = { latitude: null, longitude: null };
+    try {
+      if ('geolocation' in navigator) {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 0
+          });
+        });
+        currentLocation = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        };
+      }
+    } catch (e) {
+      const reason = (e && e.message) ? e.message : 'Permission denied or unavailable';
+      console.warn('Location not available for SOS alert:', reason);
+      if (locStatus) locStatus.textContent = 'Location unavailable: ' + reason + '. Please allow location and try again.';
+    }
+    
+    // Log SOS event with location
     const resp = await postJSON('/api/sos', { 
       user: (window.currentUser||'Anonymous'), 
       time: new Date().toISOString(), 
       triggeredBy,
-      battery: batteryLevel
+      battery: batteryLevel,
+      location: currentLocation
     });
     sosId = resp && resp.sosId || Date.now();
     
