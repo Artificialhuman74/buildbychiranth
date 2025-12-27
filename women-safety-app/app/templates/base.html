@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="description" content="SafeSpace - A secure, anonymous platform for women's safety reporting and community support">
+    <meta name="description" content="Brew - A secure, anonymous platform for women's safety reporting and community support">
     <meta name="theme-color" content="#6B7FD7">
     <title>{% block title %}Women's Safety App{% endblock %}</title>
     
@@ -21,315 +21,58 @@
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     
-    <!-- Custom CSS -->
+    <!-- Custom CSS - Pastel Sanctuary Theme -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pastel-sanctuary.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/enhanced-style.css') }}">
     
     {% block extra_css %}{% endblock %}
     
     {% block extra_head %}{% endblock %}
-    <style>
-        /* SOS Floating Action Button */
-        .sos-fab{
-            position: fixed;
-            left: 16px;
-            bottom: 20px;
-            z-index: 1050;
-            background: linear-gradient(135deg, #DC2626 0%, #EF4444 100%);
-            color: #fff !important;
-            border: 3px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            width: 72px;
-            height: 72px;
-            box-shadow: 0 8px 24px rgba(220,38,38,0.5), 0 0 0 0 rgba(220,38,38,0.7);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            text-decoration: none;
-            font-weight: 800;
-            font-size: 0.7rem;
-            transition: all 0.3s ease;
-            letter-spacing: 0.5px;
-            animation: sosPulse 2s infinite;
-            cursor: pointer;
-        }
-        
-        @keyframes sosPulse {
-            0% {
-                box-shadow: 0 8px 24px rgba(220,38,38,0.5), 0 0 0 0 rgba(220,38,38,0.7);
-            }
-            50% {
-                box-shadow: 0 8px 24px rgba(220,38,38,0.5), 0 0 0 15px rgba(220,38,38,0);
-            }
-            100% {
-                box-shadow: 0 8px 24px rgba(220,38,38,0.5), 0 0 0 0 rgba(220,38,38,0);
-            }
-        }
-        
-        .sos-fab:hover{ 
-            transform: scale(1.1); 
-            color: #fff !important;
-            animation: sosPulseFast 1s infinite;
-        }
-        
-        @keyframes sosPulseFast {
-            0%, 100% {
-                box-shadow: 0 12px 32px rgba(220,38,38,0.6), 0 0 0 0 rgba(220,38,38,0.7);
-            }
-            50% {
-                box-shadow: 0 12px 32px rgba(220,38,38,0.6), 0 0 0 20px rgba(220,38,38,0);
-            }
-        }
-        
-        .sos-fab svg {
-            transition: transform 0.3s ease;
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
-        }
-        .sos-fab:hover svg {
-            transform: scale(1.15) rotate(15deg);
-        }
-        
-        .sos-fab .sos-text {
-            font-size: 1rem;
-            margin-top: 2px;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-        
-        @media (max-width: 576px){
-            .sos-fab{ 
-                left: 12px; 
-                bottom: 16px; 
-                width: 68px;
-                height: 68px;
-            }
-        }
-        
-        /* Emergency Call Button (smaller, secondary) */
-        .emergency-fab{
-            position: fixed;
-            left: 16px;
-            bottom: 110px;
-            z-index: 1049;
-            background: linear-gradient(135deg, #2D3748 0%, #1a202c 100%);
-            color: #fff !important;
-            border-radius: 50px;
-            padding: 0.75rem 1rem;
-            box-shadow: 0 6px 18px rgba(0,0,0,0.25);
-            display: flex;
-            align-items: center;
-            gap: .5rem;
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 0.85rem;
-            transition: all 0.3s ease;
-        }
-        .emergency-fab:hover{ 
-            transform: translateY(-2px); 
-            color: #fff; 
-            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-        }
-        @media (max-width: 576px){
-            .emergency-fab{ 
-                left: 12px; 
-                bottom: 100px; 
-                padding: .65rem .9rem;
-                font-size: 0.8rem;
-            }
-            .emergency-fab .label{ 
-                font-size: 0.75rem;
-            }
-        }
-        
-        /* Enhanced navbar styling */
-        .navbar{
-            backdrop-filter: blur(10px);
-            background: rgba(255,255,255,0.98) !important;
-            border-bottom: 1px solid rgba(0,0,0,0.06);
-        }
-        
-        /* Auth top-right area - refined positioning */
-        .auth-area-wrapper{
-            display: flex;
-            align-items: center;
-            gap: .5rem;
-        }
-        .navbar-toggler{
-            margin-right: 0.5rem;
-        }
-        
-        /* Avatar styling */
-        .avatar-circle{
-            width: 38px; 
-            height: 38px; 
-            border-radius: 50%;
-            background: linear-gradient(135deg, #6B7FD7 0%, #9B7EDE 100%);
-            color: #fff; 
-            display: inline-flex; 
-            align-items: center; 
-            justify-content: center;
-            font-weight: 700; 
-            font-size: 0.95rem;
-            letter-spacing: .5px;
-            box-shadow: 0 4px 12px rgba(107,127,215,.35);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            border: 2px solid rgba(255,255,255,0.9);
-        }
-        .avatar-circle:hover{
-            transform: scale(1.05);
-            box-shadow: 0 6px 16px rgba(107,127,215,.45);
-        }
-        
-        /* Compact auth buttons */
-        .auth-btn{
-            font-size: 0.875rem;
-            font-weight: 600;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            transition: all 0.2s ease;
-            text-decoration: none;
-            display: inline-block;
-        }
-        .auth-btn-login{
-            color: #4A5568;
-            border: 1.5px solid #E2E8F0;
-            background: #fff;
-        }
-        .auth-btn-login:hover{
-            background: #F7FAFC;
-            color: #2D3748;
-            border-color: #CBD5E0;
-        }
-        .auth-btn-signup{
-            background: linear-gradient(135deg, #6B7FD7 0%, #9B7EDE 100%);
-            color: #fff !important;
-            border: none;
-            box-shadow: 0 2px 8px rgba(107,127,215,0.25);
-        }
-        .auth-btn-signup:hover{
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(107,127,215,0.35);
-        }
-        
-        /* Nav links enhanced */
-        .nav-link{
-            font-weight: 500;
-            color: #4A5568 !important;
-            transition: all 0.2s ease;
-            border-radius: 8px;
-        }
-        .nav-link:hover{
-            color: #6B7FD7 !important;
-            background: rgba(107,127,215,0.08);
-        }
-        .nav-link svg{
-            opacity: 0.7;
-            transition: opacity 0.2s ease;
-        }
-        .nav-link:hover svg{
-            opacity: 1;
-        }
-        
-        /* Dropdown menu polish */
-        .dropdown-menu{
-            border: none;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-            border-radius: 12px;
-            padding: 0.5rem;
-            margin-top: 0.5rem;
-        }
-        .dropdown-item{
-            border-radius: 8px;
-            padding: 0.6rem 1rem;
-            font-weight: 500;
-            transition: all 0.2s ease;
-        }
-        .dropdown-item:hover{
-            background: linear-gradient(135deg, rgba(107,127,215,0.1) 0%, rgba(155,126,222,0.1) 100%);
-            color: #6B7FD7;
-        }
-        
-        /* Brand enhancement */
-        .navbar-brand{
-            transition: transform 0.2s ease;
-        }
-        .navbar-brand:hover{
-            transform: translateY(-1px);
-        }
-        
-        /* Mobile optimization */
-        @media (max-width: 991px){
-            .navbar-collapse{
-                margin-top: 1rem;
-                padding: 1rem;
-                background: #F7FAFC;
-                border-radius: 12px;
-                margin-left: -0.5rem;
-                margin-right: -0.5rem;
-            }
-        }
-        
-        @media (min-width: 992px){
-            .auth-area-wrapper{
-                margin-left: auto;
-            }
-        }
-    </style>
 </head>
+
 <body>
-    <!-- Enhanced Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm sticky-top">
-        <div class="container">
+    <!-- Top Header - Logo & User -->
+    <header class="top-header fixed-top">
+        <div class="container d-flex justify-content-between align-items-center">
             <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('main.index') }}">
-                <svg width="28" height="28" fill="currentColor" viewBox="0 0 16 16" style="color: #667eea;">
+                <svg width="28" height="28" fill="currentColor" viewBox="0 0 16 16">
                     <path d="M5.338 1.59a61.44 61.44 0 0 0-2.837.856.481.481 0 0 0-.328.39c-.554 4.157.726 7.19 2.253 9.188a10.725 10.725 0 0 0 2.287 2.233c.346.244.652.42.893.533.12.057.218.095.293.118a.55.55 0 0 0 .101.025.615.615 0 0 0 .1-.025c.076-.023.174-.061.294-.118.24-.113.547-.29.893-.533a10.726 10.726 0 0 0 2.287-2.233c1.527-1.997 2.807-5.031 2.253-9.188a.48.48 0 0 0-.328-.39c-.651-.213-1.75-.56-2.837-.855C9.552 1.29 8.531 1.067 8 1.067c-.53 0-1.552.223-2.662.524zM5.072.56C6.157.265 7.31 0 8 0s1.843.265 2.928.56c1.11.3 2.229.655 2.887.87a1.54 1.54 0 0 1 1.044 1.262c.596 4.477-.787 7.795-2.465 9.99a11.775 11.775 0 0 1-2.517 2.453 7.159 7.159 0 0 1-1.048.625c-.28.132-.581.24-.829.24s-.548-.108-.829-.24a7.158 7.158 0 0 1-1.048-.625 11.777 11.777 0 0 1-2.517-2.453C1.928 10.487.545 7.169 1.141 2.692A1.54 1.54 0 0 1 2.185 1.43 62.456 62.456 0 0 1 5.072.56z"/>
                 </svg>
-                <span style="font-weight: 700; background: linear-gradient(135deg, #6B7FD7 0%, #9B7EDE 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">SafeSpace</span>
+                <span>Brew</span>
             </a>
             
-            <div class="auth-area-wrapper ms-auto">
+            <div class="auth-area-wrapper">
                 {% if session.get('logged_in') %}
                 <div class="dropdown">
                     {% set display_name = (session.get('user_name') or session.get('user_email') or '') %}
                     {% set initial = display_name[:1] | upper %}
-                    <a class="avatar-circle dropdown-toggle d-flex" href="#" role="button" id="hdrUser" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu" style="text-decoration: none;">
+                    <a class="avatar-circle dropdown-toggle d-flex" href="#" role="button" id="hdrUser" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu">
                         {{ initial or 'U' }}
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="hdrUser">
-                        <li><a class="dropdown-item d-flex align-items-center gap-2" href="{{ url_for('main.my_reports') }}">
-                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                <path d="M2.5 3.5a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1h-11zm2-2a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1h-7zM0 13a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 16 13V6a1.5 1.5 0 0 0-1.5-1.5h-13A1.5 1.5 0 0 0 0 6v7zm1.5.5A.5.5 0 0 1 1 13V6a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5h-13z"/>
-                            </svg>
-                            My Reports
-                        </a></li>
-                        <li><a class="dropdown-item d-flex align-items-center gap-2" href="{{ url_for('main.settings') }}">
-                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                <path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/>
-                                <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319z"/>
-                            </svg>
-                            Settings
-                        </a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('main.my_reports') }}">My Reports</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('main.settings') }}">Settings</a></li>
                         <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item d-flex align-items-center gap-2 text-danger" href="{{ url_for('main.logout') }}">
-                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                <path fill-rule="evenodd" d="M6 12.5a.5.5 0 0 0 .5.5h8a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5h-8a.5.5 0 0 0-.5.5v2a.5.5 0 0 1-1 0v-2A1.5 1.5 0 0 1 6.5 2h8A1.5 1.5 0 0 1 16 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 5 12.5v-2a.5.5 0 0 1 1 0v2z"/>
-                                <path fill-rule="evenodd" d="M.146 8.354a.5.5 0 0 1 0-.708l3-3a.5.5 0 1 1 .708.708L1.707 7.5H10.5a.5.5 0 0 1 0 1H1.707l2.147 2.146a.5.5 0 0 1-.708.708l-3-3z"/>
-                            </svg>
-                            Logout
-                        </a></li>
+                        <li><a class="dropdown-item text-danger" href="{{ url_for('main.logout') }}">Logout</a></li>
                     </ul>
                 </div>
                 {% else %}
                 <a href="{{ url_for('main.login') }}" class="auth-btn auth-btn-login">Login</a>
                 <a href="{{ url_for('main.signup') }}" class="auth-btn auth-btn-signup">Sign Up</a>
                 {% endif %}
-                <button class="navbar-toggler border-0 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
             </div>
+        </div>
+    </header>
+    
+    <!-- Bottom Navigation - Buttons Only -->
+    <nav class="navbar navbar-expand-lg fixed-bottom">
+        <div class="container">
+            <button class="navbar-toggler border-0 mx-auto" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto align-items-center">
+                <ul class="navbar-nav mx-auto align-items-center w-100 justify-content-around">
                     <li class="nav-item">
                         <a class="nav-link px-3 py-2" href="{{ url_for('main.index') }}">
                             <svg width="16" height="16" fill="currentColor" class="me-1" viewBox="0 0 16 16">
@@ -390,7 +133,7 @@
         </div>
     </nav>
 
-    <div class="container">
+    <div class="container" style="background: transparent !important; padding-top: 90px; padding-bottom: 120px;">
         <!-- Flash Messages -->
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -406,9 +149,14 @@
         {% block content %}{% endblock %}
     </div>
 
-    <footer class="mt-5 py-3 bg-light text-center">
+    <footer class="mt-5 py-4 text-center" style="background: linear-gradient(180deg, #0d0d0d 0%, #0a0a0a 100%); border-top: 1px solid rgba(201, 169, 97, 0.15);">
         <div class="container">
-            <p class="text-muted mb-0">Your safety and privacy are our priority. All data is encrypted and secure.</p>
+            <p class="mb-2" style="color: #a88c4f; font-size: 0.95rem; letter-spacing: 0.5px;">Your safety and privacy are our priority. All data is encrypted and secure.</p>
+            <p class="mb-0" style="font-size: 0.85rem;">
+                <a href="{{ url_for('main.user_agreement') }}" style="color: #888888; text-decoration: none; margin: 0 10px;">Terms of Service</a> | 
+                <a href="{{ url_for('main.user_agreement') }}" style="color: #888888; text-decoration: none; margin: 0 10px;">Privacy Policy</a> | 
+                <a href="{{ url_for('main.user_agreement') }}" style="color: #888888; text-decoration: none; margin: 0 10px;">User Agreement</a>
+            </p>
         </div>
     </footer>
 
@@ -453,8 +201,8 @@
                         </svg>
                     </div>
                     <div>
-                        <h6 class="mb-0" style="font-weight: 700; color: #fff;">SafeSpace Support</h6>
-                        <small style="color: rgba(255,255,255,0.9); font-size: 0.75rem;">AI Companion</small>
+                        <h6 class="mb-0" style="font-weight: 700; color: #fff;">Brew Support</h6>
+                        <small style="color: rgba(255,255,255,0.9); font-size: 0.75rem;">Hi im Brew how may i help you</small>
                     </div>
                 </div>
                 <button id="closeChatBtn" class="chat-close-btn" aria-label="Close chat">
@@ -469,7 +217,7 @@
                 <!-- Welcome Message -->
                 <div id="welcomeMessage" class="ai-message">
                     <div class="message-content">
-                        <p class="mb-2"><strong>Welcome to SafeSpace Support.</strong> I'm here to listen and help.</p>
+                        <p class="mb-2"><strong>Welcome to Brew Support.</strong> I'm here to listen and help.</p>
                         <p class="mb-3" style="font-size: 0.9rem;">How can I support you today?</p>
                         <div class="quick-actions">
                             <button class="quick-action-btn" onclick="sendQuickMessage('I need someone to talk to')">I need to talk</button>
@@ -886,3 +634,7 @@
     </script>
 </body>
 </html>
+
+
+
+

@@ -21,10 +21,14 @@ static_dir = os.path.join(base_dir, 'app', 'static')
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 CORS(app)
 
-# Add app configuration for database and sessions
-app.config['SECRET_KEY'] = 'your-secret-key-change-this-in-production-2024'
-app.config['UPLOAD_FOLDER'] = 'app/uploads/evidence'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+# Load configuration from config.py
+from config import Config
+app.config.from_object(Config)
+
+# Additional app configuration for database and sessions
+app.config['SECRET_KEY'] = app.config.get('SECRET_KEY', 'your-secret-key-change-this-in-production-2024')
+app.config['UPLOAD_FOLDER'] = app.config.get('UPLOAD_FOLDER', 'app/uploads/evidence')
+app.config['MAX_CONTENT_LENGTH'] = app.config.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024)
 
 # Database configuration
 basedir = os.path.abspath(os.path.dirname(__file__))

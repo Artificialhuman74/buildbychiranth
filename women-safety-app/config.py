@@ -7,4 +7,4 @@ class Config:
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
     
     # Gemini AI Configuration
-    GEMINI_API_KEY = 'AIzaSyATV4BtiAja3TnWjENXtHyD38ZLcz652ZI'  # Get from https://ai.google.dev/
+    GEMINI_API_KEY = 'AIzaSyBrFlHoPsA4ZiZwTvqfGFqH2yvyfWdX6MU'  # Get from https://ai.google.dev/

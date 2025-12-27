@@ -12,11 +12,12 @@ from flask import send_from_directory
 
 bp = Blueprint('main', __name__)
 
-# Gemini API configuration (read from environment). Never hardcode keys.
+# Gemini API configuration
 def _gemini_url():
-    key = os.environ.get('GEMINI_API_KEY')
-    model = os.environ.get('GEMINI_MODEL', 'gemini-1.5-flash-latest')
-    api_ver = os.environ.get('GEMINI_API_VERSION', 'v1')  # default to v1 for wider model support
+    from flask import current_app
+    key = current_app.config.get('GEMINI_API_KEY') or os.environ.get('GEMINI_API_KEY')
+    model = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
+    api_ver = os.environ.get('GEMINI_API_VERSION', 'v1beta')
     if not key:
         return None
     return f'https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent?key={key}'
@@ -83,6 +84,46 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # ============ AUTHENTICATION ROUTES ============
+@bp.route('/user-agreement')
+def user_agreement():
+    """Display user agreement, terms of service, and privacy policy with interactive cards."""
+    return render_template('user_agreement.html')
+
+@bp.route('/onboarding')
+def onboarding_swipe():
+    """Display interactive swipe cards for onboarding user agreements."""
+    return render_template('onboarding_swipe.html')
+
+@bp.route('/api/save-onboarding', methods=['POST'])
+def save_onboarding():
+    """Save user onboarding agreement responses."""
+    try:
+        data = request.get_json()
+        # Store in session
+        session['onboarding_completed'] = True
+        session['user_agreements'] = data
+        
+        # If user is logged in, save to database
+        if session.get('user_id'):
+            user_id = session['user_id']
+            # You can store this in UserPreference or create a new table
+            pref = UserPreference.query.filter_by(user_id=user_id).first()
+            if pref:
+                # Store agreements as JSON in a field or handle as needed
+                pass
+        
+        return jsonify({'success': True, 'message': 'Onboarding completed'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@bp.route('/reset-onboarding')
+def reset_onboarding():
+    """Reset onboarding status - for testing purposes."""
+    session.pop('onboarding_completed', None)
+    session.pop('user_agreements', None)
+    flash('Onboarding reset. You can now go through the onboarding flow again.', 'info')
+    return redirect(url_for('main.onboarding_swipe'))
+
 @bp.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -875,7 +916,7 @@ def api_sos_deactivate():
 
 @bp.route('/')
 def index():
-    """Landing page with introduction to SafeSpace"""
+    """Main landing page with intro animation"""
     return render_template('landing.html')
 
 @bp.route('/report')
@@ -1674,16 +1715,13 @@ def chat_api():
             except requests.exceptions.Timeout:
                 if attempt < len(backoffs):
                     continue
-                return jsonify({'success': False, 'message': "The response is taking longer than expected. Please try again or call 181 for immediate help."}), 500
+                return jsonify({'success': False, 'message': "Connection timeout. Please check your internet connection."}), 500
             except Exception as e:
                 print(f"Chat API Error: {str(e)}")
                 break
 
-    # Rule-based fallback (works offline without API key)
-    fallback = _rule_based_support_reply(user_message)
-    history.append({'user': user_message, 'ai': fallback})
-    session['chat_history'] = history[-6:]
-    return jsonify({'success': True, 'message': fallback, 'provider': 'fallback'})
+    # If we reach here, Gemini API failed - return error instead of fallback
+    return jsonify({'success': False, 'message': "AI service unavailable. Please check your API key and internet connection."}), 500
 
 # ============ SAFE ROUTES FEATURE ============
 import pandas as pd
