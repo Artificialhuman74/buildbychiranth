@@ -51,8 +51,8 @@
 ### Step 1: Clone the Repository
 ```powershell
 # Clone from GitHub
-git clone https://github.com/abhiraamadiga/women-safety-app.git
-cd women-safety-app\women-safety-app
+git clone https://github.com/BuiltbyVrunda/dreamflow.git
+cd dreamflow\women-safety-app
 ```
 
 ### Step 2: Create Virtual Environment
