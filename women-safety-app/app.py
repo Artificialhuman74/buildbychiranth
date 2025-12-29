@@ -232,7 +232,7 @@ def calculate_population_score(lat, lon, radius=0.005):
     except:
         return 5.0, 5.0, False
 
-def validate_route_connectivity(route_points, max_gap_km=0.5):
+def validate_route_connectivity(route_points, max_gap_km=0.55):
     """
     Validate that route points are properly connected without large gaps
     Returns True if route is continuous, False if there are disconnected segments
@@ -254,7 +254,7 @@ def validate_route_connectivity(route_points, max_gap_km=0.5):
     
     return True
 
-def check_route_main_road_coverage(route_points, min_coverage=0.4):
+def check_route_main_road_coverage(route_points, min_coverage=0.35):
     """
     Check if route has sufficient main road coverage
     Returns (has_coverage, main_road_percentage)
@@ -279,6 +279,105 @@ def check_route_main_road_coverage(route_points, min_coverage=0.4):
     
     return coverage >= min_coverage, coverage * 100
 
+def identify_unsafe_zones(start_lat, start_lon, end_lat, end_lon, num_samples=20):
+    """
+    Intelligently identify high-crime zones between start and end points
+    Returns list of unsafe zone coordinates to avoid
+    """
+    unsafe_zones = []
+    
+    # Sample points along direct line and nearby areas
+    for i in range(num_samples):
+        ratio = i / (num_samples - 1) if num_samples > 1 else 0.5
+        lat = start_lat + (end_lat - start_lat) * ratio
+        lon = start_lon + (end_lon - start_lon) * ratio
+        
+        # Check crime at this point with larger radius
+        crime_count = calculate_crime_score(lat, lon, radius=0.008)
+        
+        # If high crime (>5), mark as unsafe zone
+        if crime_count > 5:
+            unsafe_zones.append({
+                'lat': lat,
+                'lon': lon,
+                'crime_level': crime_count,
+                'severity': 'high' if crime_count > 8 else 'medium'
+            })
+    
+    return unsafe_zones
+
+def generate_intelligent_waypoints(start_lat, start_lon, end_lat, end_lon, unsafe_zones, num_waypoints=2):
+    """
+    Generate smart waypoints that actively avoid unsafe zones
+    Uses perpendicular offset strategy to route around danger areas
+    """
+    waypoints = []
+    
+    if not unsafe_zones:
+        return waypoints
+    
+    # Calculate perpendicular direction to main route
+    dx = end_lon - start_lon
+    dy = end_lat - start_lat
+    
+    # Perpendicular vector (rotate 90 degrees)
+    perp_x = -dy
+    perp_y = dx
+    
+    # Normalize
+    length = (perp_x**2 + perp_y**2) ** 0.5
+    if length > 0:
+        perp_x /= length
+        perp_y /= length
+    
+    # Generate waypoints at strategic positions
+    for i in range(1, num_waypoints + 1):
+        ratio = i / (num_waypoints + 1)
+        base_lat = start_lat + (end_lat - start_lat) * ratio
+        base_lon = start_lon + (end_lon - start_lon) * ratio
+        
+        # Check if this position is near any unsafe zone
+        closest_unsafe_dist = float('inf')
+        for zone in unsafe_zones:
+            dist = haversine_distance(base_lat, base_lon, zone['lat'], zone['lon'])
+            closest_unsafe_dist = min(closest_unsafe_dist, dist)
+        
+        if closest_unsafe_dist < 0.8:  # Within 800m of unsafe zone - reroute!
+            # Offset perpendicular to avoid unsafe zone
+            # Try both sides (+/-) and pick safer option
+            offset_distance = 0.012  # ~1.2km offset
+            
+            option1_lat = base_lat + perp_y * offset_distance
+            option1_lon = base_lon + perp_x * offset_distance
+            
+            option2_lat = base_lat - perp_y * offset_distance
+            option2_lon = base_lon - perp_x * offset_distance
+            
+            # Calculate comprehensive safety at both options
+            crime1 = calculate_crime_score(option1_lat, option1_lon, radius=0.006)
+            lighting1 = calculate_lighting_score(option1_lat, option1_lon, radius=0.005)
+            pop1, _, _ = calculate_population_score(option1_lat, option1_lon, radius=0.005)
+            
+            crime2 = calculate_crime_score(option2_lat, option2_lon, radius=0.006)
+            lighting2 = calculate_lighting_score(option2_lat, option2_lon, radius=0.005)
+            pop2, _, _ = calculate_population_score(option2_lat, option2_lon, radius=0.005)
+            
+            # Composite safety score (lower crime + higher lighting + higher population = safer)
+            safety1 = -crime1 * 3 + lighting1 + pop1
+            safety2 = -crime2 * 3 + lighting2 + pop2
+            
+            if safety1 > safety2:
+                waypoints.append((option1_lat, option1_lon))
+                print(f"  🛡️ Intelligent waypoint {i}: Avoiding unsafe zone, offset +{offset_distance:.3f}° (safety score: {safety1:.2f})")
+            else:
+                waypoints.append((option2_lat, option2_lon))
+                print(f"  🛡️ Intelligent waypoint {i}: Avoiding unsafe zone, offset -{offset_distance:.3f}° (safety score: {safety2:.2f})")
+        else:
+            # Safe area - no need for waypoint
+            print(f"  ✅ Position {i}: Safe area detected, no waypoint needed")
+    
+    return waypoints
+
 def detect_route_backtracking(route_points, start_lat, start_lon, end_lat, end_lon):
     """
     Detect if route has unnecessary back-tracking or detours
@@ -301,9 +400,9 @@ def detect_route_backtracking(route_points, start_lat, start_lon, end_lat, end_l
             route_points[i + 1][0], route_points[i + 1][1]
         )
     
-    # Stricter ratio: route should be max 1.3x direct distance
+    # Stricter ratio: route should be max 1.45x direct distance (10% more lenient)
     detour_ratio = actual_distance / direct_distance
-    if detour_ratio > 1.3:
+    if detour_ratio > 1.45:
         return False
     
     # Check for back-tracking: measure progress toward destination
@@ -344,12 +443,12 @@ def detect_route_backtracking(route_points, start_lat, start_lon, end_lat, end_l
     
     total_segments = len(range(0, len(route_points) - step, step))
     
-    # Reject if more than 20% of segments move away from destination
-    if backtrack_count > (total_segments * 0.2):
+    # Reject if more than 22% of segments move away from destination (10% more lenient)
+    if backtrack_count > (total_segments * 0.22):
         return False
     
-    # Reject if more than 40% of segments are stagnant or backtracking
-    if (backtrack_count + stagnant_count) > (total_segments * 0.4):
+    # Reject if more than 44% of segments are stagnant or backtracking (10% more lenient)
+    if (backtrack_count + stagnant_count) > (total_segments * 0.44):
         return False
     
     # Additional check: measure maximum deviation from direct line
@@ -616,7 +715,7 @@ def optimize_route():
             for idx, route_data in enumerate(direct_routes):
                 route_points = route_data['route']
                 
-                if not validate_route_connectivity(route_points, max_gap_km=0.5):
+                if not validate_route_connectivity(route_points, max_gap_km=0.55):
                     print(f"❌ Direct route {idx+1}: Rejected - disconnected segments")
                     continue
                 
@@ -644,7 +743,64 @@ def optimize_route():
                         main_status = f"main roads: {main_pct:.0f}%" if has_main else f"local roads: {main_pct:.0f}%"
                         print(f"✅ Direct route {idx+1}: {route_data['distance_km']:.2f}km, safety={safety['safety_score']:.1f}, {main_status}")
         
-        print("\n--- Phase 2: Strategic Waypoint Exploration ---")
+        print("\n--- Phase 2: Intelligent Safety-Based Routing ---")
+        
+        # Step 1: Identify unsafe zones along direct path
+        print("  🔍 Analyzing route for unsafe areas...")
+        unsafe_zones = identify_unsafe_zones(start_lat, start_lon, end_lat, end_lon, num_samples=30)
+        
+        if unsafe_zones:
+            print(f"  ⚠️  Found {len(unsafe_zones)} unsafe zones with high crime!")
+            for idx, zone in enumerate(unsafe_zones[:5]):  # Show first 5
+                print(f"     Zone {idx+1}: Crime level {zone['crime_level']:.1f} at ({zone['lat']:.4f}, {zone['lon']:.4f})")
+            
+            # Step 2: Generate intelligent waypoints to avoid unsafe zones
+            print("  🧠 Generating intelligent waypoints to avoid danger...")
+            smart_waypoints = generate_intelligent_waypoints(
+                start_lat, start_lon, end_lat, end_lon, 
+                unsafe_zones, num_waypoints=2
+            )
+            
+            if smart_waypoints:
+                print(f"  ✅ Generated {len(smart_waypoints)} safety-optimized waypoints")
+                
+                # Try routes with smart waypoints
+                for wp_idx, waypoint in enumerate(smart_waypoints):
+                    wp_lat, wp_lon = waypoint
+                    print(f"\n  Testing intelligent route via waypoint {wp_idx+1}...")
+                    
+                    # Get route through waypoint
+                    waypoint_routes = get_route_from_osrm(
+                        start_lat, start_lon, end_lat, end_lon,
+                        waypoint=(wp_lat, wp_lon)
+                    )
+                    
+                    if waypoint_routes:
+                        for route_data in waypoint_routes:
+                            route_points = route_data['route']
+                            
+                            if not validate_route_connectivity(route_points, max_gap_km=0.55):
+                                continue
+                            
+                            if not detect_route_backtracking(route_points, start_lat, start_lon, end_lat, end_lon):
+                                continue
+                            
+                            route_hash = calculate_route_hash(route_points)
+                            if route_hash and route_hash not in route_hashes:
+                                safety = calculate_route_safety_comprehensive(route_points, preferences)
+                                if safety:
+                                    route_data.update(safety)
+                                    route_data['source'] = f'intelligent_waypoint_{wp_idx+1}'
+                                    route_data['type'] = 'intelligent_waypoint'
+                                    all_routes.append(route_data)
+                                    route_hashes.add(route_hash)
+                                    print(f"  ✅ Intelligent route {wp_idx+1}: {route_data['distance_km']:.2f}km, safety={safety['safety_score']:.1f} (avoiding danger zones!)")
+            else:
+                print("  ℹ️  No waypoints needed - direct path is safe")
+        else:
+            print("  ✅ Direct path analysis: No significant unsafe zones detected")
+        
+        print("\n--- Phase 3: Additional Strategic Waypoints ---")
         
         base_distance = haversine_distance(start_lat, start_lon, end_lat, end_lon)
         
@@ -702,7 +858,7 @@ def optimize_route():
                         for route_data in waypoint_routes:
                             route_points = route_data['route']
                             
-                            if not validate_route_connectivity(route_points, max_gap_km=0.5):
+                            if not validate_route_connectivity(route_points, max_gap_km=0.55):
                                 continue
                             
                             if not detect_route_backtracking(route_points, start_lat, start_lon, end_lat, end_lon):
