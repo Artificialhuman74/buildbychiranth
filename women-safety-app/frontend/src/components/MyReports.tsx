@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import '../styles/MyReports.css';
+import FloatingDecorations from './FloatingDecorations';
+import GradualBlur from './GradualBlur';
 
 interface Report {
   id: number;
@@ -22,7 +24,7 @@ const MyReports: React.FC = () => {
 
   const fetchReports = async () => {
     try {
-      const res = await fetch(`/api/my-reports?filter=${filter}`);
+      const res = await fetch(`/api/my-reports?filter=${filter}`, { credentials: 'include' });
       const data = await res.json();
       setReports(data.reports || []);
     } catch (err) {
@@ -44,13 +46,15 @@ const MyReports: React.FC = () => {
   };
 
   return (
-    <div className="my-reports-container">
+    <div className="my-reports-container sylvie-landing">
+      <FloatingDecorations />
+      <GradualBlur position="bottom" height="11.475rem" strength={2.5} divCount={6} curve="ease-out" target="page" animated="scroll" />
       <div className="reports-header">
         <div>
           <h1>📝 My Reports</h1>
           <p>View and manage your incident reports</p>
         </div>
-        <Link to="/report" className="btn btn-primary">
+        <Link to="/incident-report" className="btn btn-primary">
           ➕ New Report
         </Link>
       </div>
@@ -86,7 +90,7 @@ const MyReports: React.FC = () => {
             <div className="empty-icon">📭</div>
             <h3>No reports yet</h3>
             <p>Your incident reports will appear here</p>
-            <Link to="/report" className="btn btn-primary">
+            <Link to="/incident-report" className="btn btn-primary">
               Create First Report
             </Link>
           </div>

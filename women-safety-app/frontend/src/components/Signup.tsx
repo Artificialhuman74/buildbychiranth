@@ -42,6 +42,7 @@ const Signup: React.FC = () => {
       const response = await fetch('/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           username: formData.username,
           email: formData.email,

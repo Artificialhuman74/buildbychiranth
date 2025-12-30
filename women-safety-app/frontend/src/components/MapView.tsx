@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Polyline, useMap, Circle, Popup } from
 import L from 'leaflet';
 import 'leaflet.heat';
 import { useAppContext } from '../context/AppContext';
+import { useGeolocation } from '../hooks/useGeolocation';
 import { getCrimeHeatmap, getLightingHeatmap, getPopulationHeatmap, getUserFeedbackHeatmap } from '../services/api';
 import { Route } from '../types';
 import '../styles/SafeRoutes.css';
@@ -65,6 +66,10 @@ const MapController: React.FC = () => {
         [endLocation.lat, endLocation.lon]
       ]);
       map.fitBounds(bounds, { padding: [50, 50] });
+    } else if (startLocation && !endLocation) {
+      map.setView([startLocation.lat, startLocation.lon], 15, { animate: true });
+    } else if (endLocation && !startLocation) {
+      map.setView([endLocation.lat, endLocation.lon], 15, { animate: true });
     }
   }, [map, startLocation, endLocation, selectedRoute]);
 
@@ -236,17 +241,22 @@ const HeatmapLayer: React.FC = () => {
 
 const MapView: React.FC<{ onMapClick: (lat: number, lon: number) => void }> = ({ onMapClick }) => {
   const { startLocation, endLocation, routes, selectedRoute } = useAppContext();
-  const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
+  const { position, error, refresh } = useGeolocation(false);
+  const mapRef = useRef<L.Map | null>(null);
 
+  // Center map on user location when found initially
   useEffect(() => {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setCurrentPosition([position.coords.latitude, position.coords.longitude]);
-      },
-      (error) => console.error('Error getting position:', error),
-      { enableHighAccuracy: true }
-    );
-  }, []);
+    if (position && mapRef.current) {
+      mapRef.current.setView([position.coords.latitude, position.coords.longitude], 15, { animate: true });
+    }
+  }, [position]);
+
+  const handleLocateMe = () => {
+    refresh();
+    if (position && mapRef.current) {
+      mapRef.current.setView([position.coords.latitude, position.coords.longitude], 15, { animate: true });
+    }
+  };
 
   const getRouteColor = (route: Route) => {
     if (route.safety_score >= 90) return '#059669'; // dark green
@@ -256,72 +266,123 @@ const MapView: React.FC<{ onMapClick: (lat: number, lon: number) => void }> = ({
   };
 
   return (
-    <MapContainer
-      center={[12.9716, 77.5946]}
-      zoom={13}
-      style={{ height: '100%', width: '100%' }}
-      zoomControl={true}
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <MapController />
-      <MapClickHandler onMapClick={onMapClick} />
-      <HeatmapLayer />
-
-      {startLocation && (
-        <Marker position={[startLocation.lat, startLocation.lon]} icon={startIcon}>
-          <Popup>
-            <strong>🔵 Start Location</strong><br />
-            {startLocation.name || 'Selected Start Point'}
-          </Popup>
-        </Marker>
+    <div style={{ position: 'relative', height: '100%', width: '100%' }}>
+      {error && (
+        <div className="location-error-banner" style={{
+          position: 'absolute',
+          top: '10px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1000,
+          background: '#fee2e2',
+          color: '#991b1b',
+          padding: '8px 16px',
+          borderRadius: '8px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          fontSize: '14px'
+        }}>
+          <span>⚠️ {error}</span>
+        </div>
       )}
 
-      {endLocation && (
-        <Marker position={[endLocation.lat, endLocation.lon]} icon={endIcon}>
-          <Popup>
-            <strong>🔴 End Location</strong><br />
-            {endLocation.name || 'Selected Destination'}
-          </Popup>
-        </Marker>
-      )}
+      <button
+        onClick={handleLocateMe}
+        className="locate-me-btn"
+        style={{
+          position: 'absolute',
+          bottom: '100px', // Above the dock
+          right: '20px',
+          zIndex: 1000,
+          background: 'white',
+          border: 'none',
+          borderRadius: '50%',
+          width: '48px',
+          height: '48px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          color: '#3b82f6'
+        }}
+        title="Locate Me"
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+          <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z" />
+        </svg>
+      </button>
 
-      {currentPosition && (
-        <>
-          <Marker position={currentPosition} icon={currentLocationIcon}>
+      <MapContainer
+        center={[12.9716, 77.5946]}
+        zoom={13}
+        style={{ height: '100%', width: '100%' }}
+        zoomControl={false} // We'll rely on pinch/scroll or add custom control if needed
+        ref={mapRef}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <MapController />
+        <MapClickHandler onMapClick={onMapClick} />
+        <HeatmapLayer />
+
+        {startLocation && (
+          <Marker position={[startLocation.lat, startLocation.lon]} icon={startIcon}>
             <Popup>
-              <strong>📍 Your Current Location</strong>
+              <strong>🔵 Start Location</strong><br />
+              {startLocation.name || 'Selected Start Point'}
             </Popup>
           </Marker>
-          <Circle
-            center={currentPosition}
-            radius={50}
-            pathOptions={{ color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.3 }}
-          />
-        </>
-      )}
+        )}
 
-      {selectedRoute ? (
-        <Polyline
-          positions={selectedRoute.route.map(p => [p[0], p[1]])}
-          color={getRouteColor(selectedRoute)}
-          weight={8}
-          opacity={1.0}
-        />
-      ) : (
-        routes.map((route, idx) => (
+        {endLocation && (
+          <Marker position={[endLocation.lat, endLocation.lon]} icon={endIcon}>
+            <Popup>
+              <strong>🔴 End Location</strong><br />
+              {endLocation.name || 'Selected Destination'}
+            </Popup>
+          </Marker>
+        )}
+
+        {position && (
+          <>
+            <Marker position={[position.coords.latitude, position.coords.longitude]} icon={currentLocationIcon}>
+              <Popup>
+                <strong>📍 Your Current Location</strong>
+              </Popup>
+            </Marker>
+            <Circle
+              center={[position.coords.latitude, position.coords.longitude]}
+              radius={position.coords.accuracy || 50}
+              pathOptions={{ color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.3 }}
+            />
+          </>
+        )}
+
+        {selectedRoute ? (
           <Polyline
-            key={idx}
-            positions={route.route.map(p => [p[0], p[1]])}
-            color={getRouteColor(route)}
-            weight={5}
+            positions={selectedRoute.route.map(p => [p[0], p[1]])}
+            color={getRouteColor(selectedRoute)}
+            weight={8}
             opacity={1.0}
           />
-        ))
-      )}
-    </MapContainer>
+        ) : (
+          routes.map((route, idx) => (
+            <Polyline
+              key={idx}
+              positions={route.route.map(p => [p[0], p[1]])}
+              color={getRouteColor(route)}
+              weight={5}
+              opacity={1.0}
+            />
+          ))
+        )}
+      </MapContainer>
+    </div>
   );
 };
 

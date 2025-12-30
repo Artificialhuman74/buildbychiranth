@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import '../styles/CommunitySupport.css';
+import FloatingDecorations from './FloatingDecorations';
+import GradualBlur from './GradualBlur';
 
 interface Post {
   id: number;
@@ -72,7 +74,9 @@ const CommunitySupport: React.FC = () => {
   };
 
   return (
-    <div className="community-support-container">
+    <div className="community-support-container sylvie-landing">
+      <FloatingDecorations />
+      <GradualBlur position="bottom" height="11.475rem" strength={2.5} divCount={6} curve="ease-out" target="page" animated="scroll" />
       <div className="community-header">
         <div className="header-content">
           <h1>🤝 Community Support Wall</h1>

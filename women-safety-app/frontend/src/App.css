@@ -1,35 +1,32 @@
 .App {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
-}
-
-.App > nav {
-  flex-shrink: 0;
-}
-
-.App > div:not(nav) {
-  flex: 1;
-  overflow-y: auto;
+  min-height: 100vh;
+  /* Ensure full height */
+  position: relative;
+  width: 100%;
   overflow-x: hidden;
 }
 
+.App>nav {
+  z-index: 100;
+}
+
 /* Scrollbar Styling */
-.App > div:not(nav)::-webkit-scrollbar {
+.App>div:not(nav)::-webkit-scrollbar {
   width: 8px;
 }
 
-.App > div:not(nav)::-webkit-scrollbar-track {
+.App>div:not(nav)::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.App > div:not(nav)::-webkit-scrollbar-thumb {
+.App>div:not(nav)::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 4px;
 }
 
-.App > div:not(nav)::-webkit-scrollbar-thumb:hover {
+.App>div:not(nav)::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.3);
 }
 
@@ -82,7 +79,23 @@
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Global Landing Page Aesthetic */
+.sylvie-landing {
+  background: linear-gradient(180deg, #faf8f5 0%, #f5f1ed 100%);
+  padding-bottom: 150px;
+  /* ensure content clears fixed bottom nav */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overflow: visible;
+  /* let parent handle scrolling */
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  /* allow touch scroll */
+  width: 100%;
+  min-height: 100vh;
 }

@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import '../styles/FakeCall.css';
+import FloatingDecorations from './FloatingDecorations';
+import GradualBlur from './GradualBlur';
 
 interface Message {
   id: string;
@@ -143,7 +145,9 @@ const FakeCall: React.FC = () => {
 
   if (!callActive) {
     return (
-      <div className="fake-call-container">
+      <div className="fake-call-container sylvie-landing">
+        <FloatingDecorations />
+        <GradualBlur position="bottom" height="11.475rem" strength={2.5} divCount={6} curve="ease-out" target="page" animated="scroll" />
         <div className="call-setup">
           <div className="setup-card">
             <h1>📞 Fake Call Assistant</h1>

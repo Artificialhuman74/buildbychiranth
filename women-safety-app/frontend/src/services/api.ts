@@ -1,13 +1,13 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://localhost:5443';
+const API_BASE_URL = ''; // Force relative path to use proxy
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: false,
+  withCredentials: true,
   timeout: 60000 // 60 seconds for route optimization
 });
 
@@ -17,7 +17,7 @@ const quickApi = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: false,
+  withCredentials: true,
   timeout: 15000 // 15 seconds for quick calls
 });
 

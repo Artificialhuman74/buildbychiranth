@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../styles/SOSCenter.css';
+import FloatingDecorations from './FloatingDecorations';
+import GradualBlur from './GradualBlur';
 
 interface EmergencyContact {
   id: number;
@@ -12,7 +14,46 @@ const SOSCenter: React.FC = () => {
   const [status, setStatus] = useState('Ready.');
   const [locStatus, setLocStatus] = useState('Location idle.');
   const [uploadStatus, setUploadStatus] = useState('None yet.');
-  const [shakeStatus, setShakeStatus] = useState('Shake trigger: Off');
+  const [shakeEnabled, setShakeEnabled] = useState(true);
+
+
+
+  const [permissionGranted, setPermissionGranted] = useState(false);
+
+  const requestPermission = async () => {
+    if (
+      typeof (DeviceMotionEvent as any).requestPermission === 'function'
+    ) {
+      try {
+        const permissionState = await (DeviceMotionEvent as any).requestPermission();
+        if (permissionState === 'granted') {
+          setPermissionGranted(true);
+          setShakeEnabled(true);
+        } else {
+          alert('Permission to access device motion was denied.');
+          setShakeEnabled(false);
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    } else {
+      // Non-iOS 13+ devices
+      setPermissionGranted(true);
+      setShakeEnabled(true);
+    }
+  };
+
+  const toggleShake = () => {
+    if (!shakeEnabled && !permissionGranted) {
+      requestPermission();
+    } else {
+      setShakeEnabled(!shakeEnabled);
+    }
+  };
+
+  // ... (rest of the component)
+
+
   const [isRecording, setIsRecording] = useState(false);
   const [showCountdown, setShowCountdown] = useState(false);
   const [countdown, setCountdown] = useState(5);
@@ -122,7 +163,7 @@ const SOSCenter: React.FC = () => {
         previewRef.current.srcObject = stream;
         previewRef.current.muted = true;
         previewRef.current.style.display = 'block';
-        previewRef.current.play().catch(() => {});
+        previewRef.current.play().catch(() => { });
       }
       return stream;
     } catch (e: any) {
@@ -156,20 +197,30 @@ const SOSCenter: React.FC = () => {
 
   const uploadRecording = async () => {
     try {
+      setStatus('Uploading recording...');
       const blob = new Blob(chunksRef.current, { type: 'video/webm' });
       const form = new FormData();
       form.append('recording', blob, `sos_${Date.now()}.webm`);
       form.append('sosId', sosId?.toString() || '');
-      
+
       const res = await fetch('/api/upload-recording', { method: 'POST', body: form });
+
+      if (!res.ok) {
+        throw new Error(`Server error ${res.status}`);
+      }
+
       const data = await res.json();
       if (data?.fileUrl) {
         setUploadStatus('Uploaded: ' + data.fileUrl);
+        setStatus('✅ Upload complete. Recording saved.');
       } else {
         setUploadStatus('Upload complete.');
+        setStatus('✅ Upload complete.');
       }
     } catch (e) {
+      console.error('Upload error:', e);
       setUploadStatus('Upload failed.');
+      setStatus(`⚠️ Upload failed: ${(e as Error).message || 'Backend unreachable'}`);
     }
   };
 
@@ -194,7 +245,7 @@ const SOSCenter: React.FC = () => {
                 longitude,
                 timestamp: new Date().toISOString()
               })
-            }).catch(() => {});
+            }).catch(() => { });
           }
         },
         (err) => {
@@ -329,8 +380,59 @@ const SOSCenter: React.FC = () => {
     setCountdownCancelled(true);
   };
 
+  const testRecording = async () => {
+    try {
+      await startMedia();
+      startRecorder();
+      setIsRecording(true);
+      setStatus('Testing recording... <span class="recording-dot"></span>');
+    } catch (e) {
+      setStatus('Recording failed: ' + (e as Error).message);
+    }
+  };
+
+  useEffect(() => {
+    if (!shakeEnabled) return;
+
+    // Check if permission is needed but not granted (for initial load on non-iOS)
+    if (!permissionGranted && typeof (DeviceMotionEvent as any).requestPermission !== 'function') {
+      setPermissionGranted(true);
+    }
+
+    // Increased threshold to 30 for intense shakes only (avoids accidental triggers)
+    const threshold = 30;
+    let lastX = 0, lastY = 0, lastZ = 0;
+
+    const handleMotion = (event: DeviceMotionEvent) => {
+      const acc = event.accelerationIncludingGravity;
+      if (!acc) return;
+
+      const { x, y, z } = acc;
+      if (x === null || y === null || z === null) return;
+
+      const deltaX = Math.abs(x - lastX);
+      const deltaY = Math.abs(y - lastY);
+      const deltaZ = Math.abs(z - lastZ);
+
+      if (deltaX + deltaY + deltaZ > threshold) {
+        if (!sosActive && !showCountdown) {
+          beginSOS();
+        }
+      }
+
+      lastX = x;
+      lastY = y;
+      lastZ = z;
+    };
+
+    window.addEventListener('devicemotion', handleMotion);
+    return () => window.removeEventListener('devicemotion', handleMotion);
+  }, [shakeEnabled, sosActive, showCountdown]);
+
   return (
-    <div className="sos-container">
+    <div className="sos-container sylvie-landing">
+      <FloatingDecorations />
+      <GradualBlur position="bottom" height="11.475rem" strength={2.5} divCount={6} curve="ease-out" target="page" animated="scroll" />
       {/* Countdown Overlay */}
       {showCountdown && (
         <div className="countdown-overlay active">
@@ -368,71 +470,63 @@ const SOSCenter: React.FC = () => {
         </div>
       )}
 
-      {/* Main SOS Hero */}
-      <div className="sos-hero">
-        <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-          <div>
-            <div className="sos-title">Emergency SOS Center</div>
-            <div className="sos-sub">
-              Trigger SOS, auto-record, and share live location with your trusted contacts.
-            </div>
-          </div>
-          <div className="text-end d-flex gap-2">
-            <button className="btn btn-sm btn-success">Mark as Safe</button>
-            <a href="tel:181" className="btn btn-sm btn-light">
+      {/* Main SOS Hero - Single Container Layout */}
+      <div className="sos-hero" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <div className="card-lite" style={{ width: '100%', maxWidth: '500px', textAlign: 'center', padding: '40px' }}>
+
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <h2 className="sos-title" style={{ fontSize: '28px', margin: 0 }}>SOS Center</h2>
+            <a href="tel:181" className="btn btn-sm btn-light" style={{ fontWeight: 'bold' }}>
               Call 181
             </a>
           </div>
-        </div>
 
-        <div className="row g-3">
-          <div className="col-lg-7">
-            <div className="card-lite">
-              <h5 className="mb-2">Quick SOS</h5>
-              <p className="mb-3" style={{ color: 'var(--muted)' }}>
-                Press SOS to start a 3s countdown. We'll start recording and log your live location.
-              </p>
-              <div className="d-grid gap-2">
-                <button
-                  className="btn-sos"
-                  onClick={beginSOS}
-                  disabled={sosActive}
-                  style={{ opacity: sosActive ? 0.5 : 1 }}
-                >
-                  🚨 Start SOS
-                </button>
-                {sosActive && (
-                  <button className="btn btn-stop" onClick={stopSOS}>
-                    ⛔ Stop & Upload
-                  </button>
-                )}
-                <button className="btn btn-ghost">Test recording (no upload)</button>
-              </div>
-              <div className="mt-3">
-                <div className="d-flex align-items-center gap-2 flex-wrap">
-                  <button type="button" className="btn btn-sm btn-ghost">
-                    Enable shake to trigger SOS
-                  </button>
-                  <span className="small" style={{ color: 'var(--muted)' }}>
-                    {shakeStatus}
-                  </span>
-                </div>
-              </div>
-              <div className="mt-3 status" dangerouslySetInnerHTML={{ __html: status }} />
-              <video ref={previewRef} playsInline muted style={{ display: 'none' }} />
+          <p className="mb-4" style={{ fontSize: '16px', color: '#666' }}>
+            Trigger SOS to auto-record and share live location.
+          </p>
+
+          <div className="d-grid gap-3 mb-4">
+            <button
+              className="btn-sos"
+              onClick={beginSOS}
+              disabled={sosActive}
+              style={{ opacity: sosActive ? 0.5 : 1, fontSize: '24px', padding: '24px' }}
+            >
+              🚨 Start SOS
+            </button>
+
+            {sosActive || isRecording ? (
+              <button className="btn btn-stop" onClick={stopSOS}>
+                ⛔ Stop & Upload
+              </button>
+            ) : null}
+          </div>
+
+          <div className="status-container mb-4" style={{ background: 'rgba(0,0,0,0.03)', padding: '15px', borderRadius: '12px' }}>
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <span style={{ fontWeight: '600' }}>Live Location:</span>
+              <span className="small">{locStatus}</span>
+            </div>
+            <div className="d-flex justify-content-between align-items-center">
+              <span style={{ fontWeight: '600' }}>Status:</span>
+              <span className="small" dangerouslySetInnerHTML={{ __html: status }}></span>
             </div>
           </div>
 
-          <div className="col-lg-5">
-            <div className="card-lite mb-3">
-              <h6 className="mb-2">Live Location</h6>
-              <div className="status">{locStatus}</div>
-            </div>
-            <div className="card-lite">
-              <h6 className="mb-2">Recent Upload</h6>
-              <div className="status">{uploadStatus}</div>
-            </div>
+          <div className="d-flex justify-content-center gap-2">
+            <button className="btn btn-sm btn-ghost" onClick={testRecording} disabled={isRecording || sosActive}>
+              Test recording
+            </button>
+            <button
+              className={`btn btn-sm ${shakeEnabled ? 'btn-light' : 'btn-ghost'}`}
+              onClick={toggleShake}
+              style={{ border: shakeEnabled ? '1px solid #ff6b6b' : '1px solid #ccc', color: shakeEnabled ? '#ff6b6b' : '#666' }}
+            >
+              {shakeEnabled ? 'Disable Shake to SOS' : 'Enable Shake to SOS'}
+            </button>
           </div>
+
+          <video ref={previewRef} playsInline muted style={{ display: 'none', width: '100%', marginTop: '20px', borderRadius: '12px' }} />
         </div>
       </div>
 

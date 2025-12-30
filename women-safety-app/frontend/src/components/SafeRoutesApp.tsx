@@ -80,7 +80,7 @@ const AppContent: React.FC = () => {
                 <strong>You're not at the starting point!</strong>
                 <p>Please navigate to the route start location first.</p>
               </div>
-              <button 
+              <button
                 className="warning-close"
                 onClick={() => setShowLocationWarning(false)}
               >
@@ -95,37 +95,31 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${showSidebar ? 'sidebar-open' : 'sidebar-closed'}`}>
       {settingLocation && (
         <div className="setting-location-indicator">
           📍 Click on map to set {settingLocation === 'start' ? 'START' : 'END'} location
         </div>
       )}
-      
+
       {/* Sidebar toggle button - always visible when sidebar is hidden */}
       {!showSidebar && (
-        <button 
-          className="sidebar-toggle-btn"
+        <button
+          className="floating-toggle-btn"
           onClick={() => setShowSidebar(true)}
           title="Show sidebar"
         >
-          ☰ Show Panel
+          ☰
         </button>
       )}
 
-      <div className={`sidebar ${!showSidebar ? 'sidebar-hidden' : ''}`}>
-        {/* Minimize button at top of sidebar */}
-        <button 
-          className="sidebar-minimize-btn"
-          onClick={() => setShowSidebar(false)}
-          title="Hide sidebar"
-        >
-          ← Minimize
-        </button>
-        
-        <Sidebar onSetLocationMode={(mode) => setSettingLocation(mode)} settingLocation={settingLocation} />
-      </div>
-      
+      <Sidebar
+        onSetLocationMode={(mode) => setSettingLocation(mode)}
+        settingLocation={settingLocation}
+        isOpen={showSidebar}
+        setIsOpen={setShowSidebar}
+      />
+
       <div className="map-container">
         <MapView onMapClick={handleMapClick} />
         {routes.length > 0 && <RouteList />}

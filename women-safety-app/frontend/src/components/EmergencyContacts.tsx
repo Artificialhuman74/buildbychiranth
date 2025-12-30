@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import '../styles/EmergencyContacts.css';
+import FloatingDecorations from './FloatingDecorations';
+import GradualBlur from './GradualBlur';
 
 interface Contact {
   id: number;
@@ -92,7 +94,9 @@ const EmergencyContacts: React.FC = () => {
   };
 
   return (
-    <div className="emergency-contacts-container">
+    <div className="emergency-contacts-container sylvie-landing">
+      <FloatingDecorations />
+      <GradualBlur position="bottom" height="11.475rem" strength={2.5} divCount={6} curve="ease-out" target="page" animated="scroll" />
       <div className="contacts-hero">
         <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
           <div>

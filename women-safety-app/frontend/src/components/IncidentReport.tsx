@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import '../styles/IncidentReport.css';
+import FloatingDecorations from './FloatingDecorations';
+import GradualBlur from './GradualBlur';
 
 interface FormData {
   who_involved: string;
@@ -94,6 +96,7 @@ const IncidentReport: React.FC = () => {
 
       const response = await fetch('/submit_report', {
         method: 'POST',
+        credentials: 'include',
         body: formDataObj
       });
 
@@ -114,7 +117,9 @@ const IncidentReport: React.FC = () => {
   const progress = (step / totalSteps) * 100;
 
   return (
-    <div className="incident-report-container">
+    <div className="incident-report-container sylvie-landing">
+      <FloatingDecorations />
+      <GradualBlur position="bottom" height="11.475rem" strength={2.5} divCount={6} curve="ease-out" target="page" animated="scroll" />
       {/* Privacy Badge */}
       <div className="privacy-alert">
         <span className="privacy-icon">🔒</span>

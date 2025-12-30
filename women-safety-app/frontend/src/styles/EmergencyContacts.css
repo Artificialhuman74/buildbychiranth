@@ -4,7 +4,7 @@
   overflow-x: hidden;
   height: 100%;
   padding: 20px;
-  background: linear-gradient(180deg, #fbeff6 0%, #fff8f4 100%);
+  /* background handled by .sylvie-landing */
   min-height: 100vh;
 }
 
