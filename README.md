@@ -51,7 +51,7 @@
 ### Step 1: Clone the Repository
 ```powershell
 # Clone from GitHub
-git clone https://github.com/Artificialhuman74/buildbychiranth.git
+git clone https://github.com/Artificialhuman74/finalapp.git
 cd buildbychiranth\women-safety-app
 ```
 
